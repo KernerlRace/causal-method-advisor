@@ -5,6 +5,7 @@ family: rdd
 question_types: [effect]
 estimand: LATE at the cutoff
 summary: When treatment is assigned by a threshold on a running variable, units just above and just below the threshold are comparable.
+summary_ru: Если воздействие назначено по порогу, объекты чуть выше и чуть ниже порога сравнимы.
 requires:
   structure: [cross_section]
   treatment_types: [binary]
@@ -24,3 +25,7 @@ bad_flags:
   small_sample: few observations near the cutoff make the estimate noisy
 libraries: [rdrobust, statsmodels, causalpy]
 sources: ["Facure ch. 16", "Molak ch. 8"]
+assumptions_ru:
+  - объекты не могут точно подогнать значение под порог
+  - остальные факторы меняются у порога плавно
+  - эффект оценивается только около порога

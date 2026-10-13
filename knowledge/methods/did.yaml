@@ -5,6 +5,7 @@ family: panel
 question_types: [effect]
 estimand: ATT
 summary: Compare the change in outcome before and after treatment in the treated group with the same change in the control group.
+summary_ru: Сравнивает изменение исхода до и после воздействия в группе с воздействием с тем же изменением в контрольной группе.
 requires:
   structure: [panel]
   treatment_types: [binary]
@@ -28,3 +29,7 @@ bad_flags:
   staggered: naive two-way fixed effects is biased when units are treated at different times
 libraries: [statsmodels, linearmodels, differences]
 sources: ["Facure ch. 13, 25"]
+assumptions_ru:
+  - параллельные тренды без воздействия
+  - нет ожидания воздействия
+  - нет перетока эффекта на контрольные объекты

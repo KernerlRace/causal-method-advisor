@@ -254,6 +254,10 @@ def _design_stats(df: pd.DataFrame, unit: str, time: str, d: pd.Series, kind: st
     reversible = bool((~after_start.loc[after_start["t"] >= after_start["t0"], "d"]).any())
     t_first = first.min()
     periods = np.sort(frame["t"].unique())
+    # воздействие с первого периода или «мигающее» у многих объектов — это шум, а не дизайн
+    switches = frame.groupby("u")["d"].apply(lambda s: int((s.astype(int).diff().abs() > 0).sum()))
+    if (periods < t_first).sum() == 0 or (switches > 1).mean() > 0.3:
+        return None
     return TreatmentDesign(
         kind=kind, columns=columns, treated_units=[_py(u) for u in treated],
         n_treated_units=int(len(treated)), n_control_units=int(frame["u"].nunique() - len(treated)),

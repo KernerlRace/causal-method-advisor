@@ -5,6 +5,7 @@ family: backdoor
 question_types: [effect, heterogeneity]
 estimand: ATE
 summary: Combine an outcome model and a propensity model; the estimate is consistent if at least one of them is correct.
+summary_ru: Сочетает модель исхода и модель propensity score; оценка верна, если верна хотя бы одна из них.
 requires:
   structure: [cross_section]
   treatment_types: [binary, categorical]
@@ -17,10 +18,11 @@ assumptions:
   - at least one of the two models is correct
 diagnostics: [overlap, balance, sample_size]
 good_flags:
+  nonlinear: flexible models in both parts capture the non-linear relationships
   large_sample: flexible ML models can be used in both parts
   high_dim: more robust to misspecification with many covariates
 bad_flags:
-  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
+  hidden_confounding: it assumes all confounders are observed, but a hidden confounder is suspected
   poor_overlap: the weighting part still suffers from extreme weights
   small_sample: two models on a small sample give a noisy estimate
 prefer_over:
@@ -28,3 +30,7 @@ prefer_over:
   regression: protects against an error in the outcome model
 libraries: [econml, dowhy]
 sources: ["Molak ch. 10", "Facure ch. 12"]
+assumptions_ru:
+  - все конфаундеры наблюдаемы
+  - группы пересекаются
+  - верна хотя бы одна из двух моделей

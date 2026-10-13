@@ -8,20 +8,29 @@ CSV сохраняются только для первых --save-csv сцен�
 """
 from __future__ import annotations
 
-import argparse
-import json
-import time
-import traceback
-from collections import Counter
-from concurrent.futures import ProcessPoolExecutor
-from pathlib import Path
+import os
 
-import numpy as np
+# Параллелим процессами, поэтому внутри процесса — один поток. Иначе каждый воркер запускает
+# бустинг/BLAS на все ядра, и потоков становится в разы больше, чем ядер (переподписка тормозит всё).
+# Ставится до импорта numpy/sklearn: воркеры на Windows заново импортируют этот модуль.
+for _var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
+    os.environ.setdefault(_var, "1")
+
+import argparse  # noqa: E402
+import json  # noqa: E402
+import time  # noqa: E402
+import traceback  # noqa: E402
+from collections import Counter  # noqa: E402
+from concurrent.futures import ProcessPoolExecutor  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import numpy as np  # noqa: E402
 
 from advisor.diagnostics import run_diagnostics
 from advisor.profiler import profile
 from advisor.rules import evaluate
-from datagen.scenario import _jsonable
+from advisor.diagnostics import all_flags
+from datagen.scenario import _jsonable, answer_mode, prune_gold, reconcile_gold
 from datagen.scenarios import generate, sample_name
 
 
@@ -34,7 +43,12 @@ def build_one(args) -> dict:
         card = profile(s.df)
         diags = run_diagnostics(s.df, card, s.query)
         verdicts = evaluate(card, s.query, diags)
+        gold_dgp = dict(s.gold)
+        if s.answer_mode != "refuse":
+            s.gold = prune_gold(reconcile_gold(name, s.gold, all_flags(diags), s.params), len(s.df))
+            s.answer_mode = answer_mode(s.gold)
         rec = s.meta()
+        rec["gold_dgp"] = gold_dgp  # исходный эталон механизма порождения (для анализа)
         rec.update(
             id=f"{name}-{seed}", seed=seed,
             card_text=card.to_text(),
@@ -59,7 +73,7 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=1000)
     ap.add_argument("--out", default="data/scenarios")
     ap.add_argument("--seed", type=int, default=0, help="базовый сид; разные сиды = непересекающиеся наборы")
-    ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument("--save-csv", type=int, default=0)
     a = ap.parse_args()
 

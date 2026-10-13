@@ -5,6 +5,7 @@ family: iv
 question_types: [effect]
 estimand: LATE
 summary: Use a variable that shifts the treatment but affects the outcome only through it, so the effect is identified even with unobserved confounders.
+summary_ru: Переменная, которая сдвигает воздействие, но влияет на исход только через него, позволяет оценить эффект даже при скрытых конфаундерах.
 requires:
   structure: [cross_section, panel]
   treatment_types: [binary, continuous]
@@ -25,3 +26,7 @@ bad_flags:
   small_sample: IV estimates have large variance, small samples make it worse
 libraries: [linearmodels, dowhy, econml]
 sources: ["Molak ch. 6", "Facure ch. 8-9"]
+assumptions_ru:
+  - инструмент действительно влияет на воздействие
+  - инструмент влияет на исход только через воздействие
+  - инструмент не связан со скрытыми конфаундерами

@@ -5,6 +5,7 @@ family: cate
 question_types: [effect, heterogeneity]
 estimand: CATE
 summary: An ensemble of causal trees that split the sample so that the effect is homogeneous within leaves.
+summary_ru: Ансамбль причинных деревьев, который находит подгруппы с разным эффектом.
 requires:
   structure: [cross_section]
   treatment_types: [binary, categorical, continuous]
@@ -16,11 +17,16 @@ assumptions:
   - overlap between groups
 diagnostics: [overlap, sample_size]
 good_flags:
+  nonlinear: trees capture non-linear relationships automatically
   large_sample: enough data to find subgroups with different effects
 bad_flags:
-  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
+  poor_overlap: without overlap the ML models extrapolate into regions with no comparable units
+  hidden_confounding: it assumes all confounders are observed, but a hidden confounder is suspected
   small_sample: the trees will lack data, CATE will be noisy
 prefer_over:
   meta_learners: provides confidence intervals for CATE
 libraries: [econml]
 sources: ["Molak ch. 10"]
+assumptions_ru:
+  - все конфаундеры наблюдаемы
+  - группы пересекаются

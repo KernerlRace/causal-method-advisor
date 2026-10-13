@@ -5,6 +5,7 @@ family: backdoor
 question_types: [effect, heterogeneity]
 estimand: ATE
 summary: ML models partial out the influence of confounders from both the outcome and the treatment; the effect is estimated on the residuals with cross-fitting.
+summary_ru: ML-модели убирают влияние конфаундеров из исхода и воздействия, эффект оценивается по остаткам.
 requires:
   structure: [cross_section, panel]
   treatment_types: [binary, categorical, continuous]
@@ -17,10 +18,12 @@ assumptions:
   - overlap (for a continuous treatment, the treatment varies at every covariate value)
 diagnostics: [overlap, sample_size]
 good_flags:
+  nonlinear: flexible ML models capture the non-linear relationships found in the data
   large_sample: DML shines on large samples
   high_dim: handles many covariates and non-linear relationships
 bad_flags:
-  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
+  poor_overlap: without overlap the ML models extrapolate into regions with no comparable units
+  hidden_confounding: it assumes all confounders are observed, but a hidden confounder is suspected
   policy_design: with a treated-group and post-period design, DML ignores the time structure that DiD, SC and SDID exploit
   small_sample: on small samples DML is unstable and loses to plain regression
 prefer_over:
@@ -28,3 +31,7 @@ prefer_over:
   psm: works with a continuous treatment
 libraries: [econml, doubleml]
 sources: ["Molak ch. 8, 10", "Facure ch. 22"]
+assumptions_ru:
+  - все конфаундеры наблюдаемы
+  - ML-модели хорошо предсказывают исход и воздействие
+  - воздействие варьирует при любых значениях ковариат

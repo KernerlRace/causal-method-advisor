@@ -5,6 +5,7 @@ family: backdoor
 question_types: [effect]
 estimand: ATT
 summary: For each treated unit, find a similar untreated unit; the effect is the average difference within pairs.
+summary_ru: Каждому объекту с воздействием подбирается похожий без воздействия, эффект равен средней разнице в парах.
 requires:
   structure: [cross_section]
   treatment_types: [binary]
@@ -18,8 +19,11 @@ diagnostics: [overlap, balance, sample_size]
 good_flags:
   good_overlap: groups overlap well, so good matches exist
 bad_flags:
-  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
+  hidden_confounding: it assumes all confounders are observed, but a hidden confounder is suspected
   high_dim: with many covariates close neighbours barely exist (curse of dimensionality)
   poor_overlap: some units have no comparable match
 libraries: [dowhy, causallib]
 sources: ["Molak ch. 9", "Facure ch. 10"]
+assumptions_ru:
+  - все конфаундеры наблюдаемы
+  - для каждого объекта с воздействием есть похожие без него

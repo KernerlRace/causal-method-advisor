@@ -5,6 +5,7 @@ family: discovery
 question_types: [discovery]
 estimand: causal graph (Markov equivalence class)
 summary: Constraint-based discovery that removes edges using conditional independence tests and orients edges through v-structures.
+summary_ru: Поиск структуры по тестам условной независимости.
 requires:
   structure: [cross_section]
   min_rows: 200
@@ -23,3 +24,7 @@ bad_flags:
   small_sample: independence tests have low power, edges will be missed
 libraries: [causal-learn, gcastle]
 sources: ["Molak ch. 13"]
+assumptions_ru:
+  - нет скрытых общих причин
+  - "faithfulness: независимости в данных порождены графом"
+  - наблюдения независимы

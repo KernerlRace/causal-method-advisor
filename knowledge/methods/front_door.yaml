@@ -5,6 +5,7 @@ family: frontdoor
 question_types: [effect]
 estimand: ATE
 summary: If the whole effect flows through an observed mediator that is not confounded with the outcome, the effect is identified despite hidden treatment-outcome confounding.
+summary_ru: Если весь эффект идёт через наблюдаемый медиатор, эффект оценивается даже при скрытом конфаундинге.
 requires:
   structure: [cross_section]
   treatment_types: [binary, continuous]
@@ -23,3 +24,7 @@ bad_flags:
   small_sample: two-stage estimation needs enough data
 libraries: [dowhy]
 sources: ["Molak ch. 6-7"]
+assumptions_ru:
+  - весь эффект воздействия проходит через медиатор
+  - нет скрытого конфаундинга между воздействием и медиатором
+  - путь от медиатора к исходу закрыт воздействием

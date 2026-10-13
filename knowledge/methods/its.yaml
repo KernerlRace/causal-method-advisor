@@ -5,6 +5,7 @@ family: timeseries
 question_types: [effect]
 estimand: effect on the treated series
 summary: Model the pre-treatment dynamics of the series (optionally with covariate series) and forecast the counterfactual after the intervention.
+summary_ru: Моделирует динамику ряда до вмешательства и прогнозирует контрфакт после него.
 requires:
   structure: [time_series, panel]
   treatment_types: [binary]
@@ -26,3 +27,7 @@ prefer_over:
   did: no control units are available
 libraries: [causalpy, tfcausalimpact, statsmodels]
 sources: ["Molak ch. 11"]
+assumptions_ru:
+  - модель до вмешательства корректно продолжается в период после
+  - одновременно с вмешательством не произошло других событий
+  - ковариатные ряды не затронуты вмешательством

@@ -5,6 +5,7 @@ family: cate
 question_types: [heterogeneity]
 estimand: CATE
 summary: Fit machine-learning outcome models and use their differences to estimate who benefits from the treatment more and who less.
+summary_ru: ML-модели исхода показывают, кому воздействие помогает больше, а кому меньше.
 requires:
   structure: [cross_section]
   treatment_types: [binary, categorical]
@@ -20,10 +21,14 @@ good_flags:
   randomization_plausible: on experimental data meta-learners give an honest estimate of heterogeneity
   large_sample: enough data for flexible models
 bad_flags:
-  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
+  hidden_confounding: it assumes all confounders are observed, but a hidden confounder is suspected
   small_sample: flexible models overfit on small samples, CATE will be noisy
   poor_overlap: the model extrapolates in regions without overlap
 prefer_over:
   diff_in_means: the question is not only about the average effect but about who benefits most
 libraries: [econml, causalml]
 sources: ["Molak ch. 9-10"]
+assumptions_ru:
+  - нет ненаблюдаемых конфаундеров (в эксперименте выполняется автоматически)
+  - группы пересекаются по ковариатам
+  - SUTVA
