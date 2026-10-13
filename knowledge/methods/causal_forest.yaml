@@ -1,0 +1,25 @@
+id: causal_forest
+name: Causal forest (CausalForestDML)
+name_ru: Причинный лес
+family: cate
+question_types: [effect, heterogeneity]
+estimand: CATE
+summary: An ensemble of causal trees that split the sample so that the effect is homogeneous within leaves.
+requires:
+  structure: [cross_section]
+  treatment_types: [binary, categorical, continuous]
+  min_rows: 500
+recommended:
+  min_rows: 3000
+assumptions:
+  - all confounders are observed
+  - overlap between groups
+diagnostics: [overlap, sample_size]
+good_flags:
+  large_sample: enough data to find subgroups with different effects
+bad_flags:
+  small_sample: the trees will lack data, CATE will be noisy
+prefer_over:
+  meta_learners: provides confidence intervals for CATE
+libraries: [econml]
+sources: ["Molak ch. 10"]

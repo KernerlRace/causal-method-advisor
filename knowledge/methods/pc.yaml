@@ -1,0 +1,25 @@
+id: pc
+name: PC algorithm
+name_ru: Алгоритм PC
+family: discovery
+question_types: [discovery]
+estimand: causal graph (Markov equivalence class)
+summary: Constraint-based discovery that removes edges using conditional independence tests and orients edges through v-structures.
+requires:
+  structure: [cross_section]
+  min_rows: 200
+  min_numeric_cols: 3
+recommended:
+  min_rows: 1000
+assumptions:
+  - causal sufficiency (no hidden common causes)
+  - faithfulness (independences in data come only from the graph)
+  - independent observations
+diagnostics: [normality, sample_size]
+good_flags:
+  large_sample: independence tests are reliable on large samples
+bad_flags:
+  hidden_confounding: PC assumes no hidden confounders, consider FCI
+  small_sample: independence tests have low power, edges will be missed
+libraries: [causal-learn, gcastle]
+sources: ["Molak ch. 13"]

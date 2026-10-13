@@ -1,0 +1,26 @@
+id: rdd
+name: Regression discontinuity design
+name_ru: Разрывный регрессионный дизайн (RDD)
+family: rdd
+question_types: [effect]
+estimand: LATE at the cutoff
+summary: When treatment is assigned by a threshold on a running variable, units just above and just below the threshold are comparable.
+requires:
+  structure: [cross_section]
+  treatment_types: [binary]
+  needs: [running_variable]
+  min_rows: 200
+recommended:
+  min_rows: 1000
+assumptions:
+  - units cannot precisely manipulate the running variable around the cutoff
+  - other factors change smoothly at the cutoff
+  - the effect is estimated only for units near the cutoff
+diagnostics: [running_variable, sample_size]
+good_flags:
+  running_variable_found: treatment jumps at a threshold of a continuous variable
+  sharp_cutoff: the threshold determines treatment almost perfectly (sharp RDD)
+bad_flags:
+  small_sample: few observations near the cutoff make the estimate noisy
+libraries: [rdrobust, statsmodels, causalpy]
+sources: ["Facure ch. 16", "Molak ch. 8"]

@@ -1,0 +1,28 @@
+id: its
+name: Interrupted time series / CausalImpact
+name_ru: Прерванные временные ряды / CausalImpact
+family: timeseries
+question_types: [effect]
+estimand: effect on the treated series
+summary: Model the pre-treatment dynamics of the series (optionally with covariate series) and forecast the counterfactual after the intervention.
+requires:
+  structure: [time_series, panel]
+  treatment_types: [binary]
+  min_pre_periods: 8
+  min_post_periods: 1
+recommended:
+  min_pre_periods: 30
+assumptions:
+  - the pre-treatment model extrapolates correctly into the post-period
+  - no other event coincides with the intervention
+  - covariate series (if used) are not affected by the treatment
+diagnostics: [sample_size]
+good_flags:
+  no_controls: there is no control group, so a time-series counterfactual is the main option
+bad_flags:
+  has_controls: control units are available; designs that use them (DiD, SC, SDID) are more credible than a single-series forecast
+  short_pre_period: a short history gives an unreliable forecast
+prefer_over:
+  did: no control units are available
+libraries: [causalpy, tfcausalimpact, statsmodels]
+sources: ["Molak ch. 11"]

@@ -1,0 +1,25 @@
+id: fci
+name: Fast causal inference (FCI)
+name_ru: Алгоритм FCI
+family: discovery
+question_types: [discovery]
+estimand: partial ancestral graph (PAG)
+summary: An extension of PC that allows hidden confounders and marks edges that may be explained by them.
+requires:
+  structure: [cross_section]
+  min_rows: 200
+  min_numeric_cols: 3
+recommended:
+  min_rows: 1000
+assumptions:
+  - faithfulness
+  - independent observations
+diagnostics: [sample_size]
+good_flags:
+  hidden_confounding: designed for data with possible hidden confounders
+bad_flags:
+  small_sample: independence tests have low power
+prefer_over:
+  pc: hidden confounders are plausible
+libraries: [causal-learn]
+sources: ["Molak ch. 14"]

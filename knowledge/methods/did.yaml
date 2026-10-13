@@ -1,0 +1,30 @@
+id: did
+name: Difference-in-differences
+name_ru: Разность разностей (DiD)
+family: panel
+question_types: [effect]
+estimand: ATT
+summary: Compare the change in outcome before and after treatment in the treated group with the same change in the control group.
+requires:
+  structure: [panel]
+  treatment_types: [binary]
+  min_treated_units: 1
+  min_control_units: 1
+  min_pre_periods: 1
+  min_post_periods: 1
+recommended:
+  min_pre_periods: 3
+  min_control_units: 5
+assumptions:
+  - parallel trends (without treatment, both groups would have moved in parallel)
+  - no anticipation of the treatment
+  - SUTVA (no spillovers to control units)
+diagnostics: [pretrend_test, sample_size]
+good_flags:
+  pretrend_ok: pre-treatment trends of the groups are parallel
+  many_treated_units: many treated units make the estimate precise
+bad_flags:
+  pretrend_violated: pre-treatment trends are not parallel, so DiD will be biased
+  staggered: naive two-way fixed effects is biased when units are treated at different times
+libraries: [statsmodels, linearmodels, differences]
+sources: ["Facure ch. 13, 25"]
