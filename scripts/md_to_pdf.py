@@ -80,18 +80,22 @@ def build_story(md: str):
     return story
 
 
-def footer(canvas, doc):
-    canvas.saveState()
-    canvas.setFont("Arial", 8.5)
-    canvas.setFillColor(colors.HexColor("#78909C"))
-    canvas.drawRightString(A4[0] - 2 * cm, 1.2 * cm, f"стр. {doc.page}")
-    canvas.restoreState()
+def make_footer(page_label: str):
+    def footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Arial", 8.5)
+        canvas.setFillColor(colors.HexColor("#78909C"))
+        canvas.drawRightString(A4[0] - 2 * cm, 1.2 * cm, f"{page_label} {doc.page}")
+        canvas.restoreState()
+    return footer
 
 
 def main(src: str, dst: str) -> None:
     with open(src, encoding="utf-8") as f:
         md = f.read()
-    title = next((l[2:].strip() for l in md.splitlines() if l.startswith("# ")), "Документ")
+    title = next((l[2:].strip() for l in md.splitlines() if l.startswith("# ")), "Document")
+    # язык подписи страниц определяем по заголовку: кириллица → «стр.», иначе «Page»
+    footer = make_footer("стр." if re.search("[а-яА-ЯёЁ]", title) else "Page")
     doc = SimpleDocTemplate(dst, pagesize=A4, leftMargin=2 * cm, rightMargin=2 * cm,
                             topMargin=1.8 * cm, bottomMargin=1.8 * cm, title=title)
     doc.build(build_story(md), onFirstPage=footer, onLaterPages=footer)
