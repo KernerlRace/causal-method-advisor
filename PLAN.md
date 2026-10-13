@@ -256,8 +256,10 @@ pre_periods < 3                 → SC/SDID помечаются «ненадё�
 
 ## 9. Стек
 
-- **Python 3.12 в venv.** Сейчас стоит 3.14, а DoWhy, EconML и causal-learn могут ещё не поддерживать его. Проверим на этапе 0.
-- **PyTorch с CUDA.** Сейчас установлена CPU-версия, нужна переустановка под RTX 3060 Ti.
+- **Python 3.12.14 в `.venv`** (через uv). ✅ Этап 0.
+- **PyTorch 2.14.1 + CUDA 12.6.** RTX 3060 Ti видна, fp16-обучение работает, matmul около 28 TFLOPS. ✅ Этап 0.
+- DoWhy 0.14 и EconML 0.17 совместимы с окружением (проверено пробной установкой), ставим на бонус-этапе.
+- Точные версии библиотек — в `requirements.lock.txt`.
 - **Генерация данных и диагностики:** numpy, pandas, statsmodels, scikit-learn, cvxpy (веса SC/SDID).
 - **Бонус-этап, расчёт эффекта:** DoWhy, EconML, causal-learn.
 - **UI:** Streamlit.
