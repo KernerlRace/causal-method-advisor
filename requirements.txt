@@ -18,5 +18,8 @@ tqdm
 # документы
 reportlab
 
+# поиск структуры (проверка сценариев discovery; lingam не берём: он откатывает numpy/scipy)
+causal-learn
+
 # тесты
 pytest

@@ -12,9 +12,9 @@ from dataclasses import asdict, dataclass, field
 import numpy as np
 import pandas as pd
 
-TIME_HINTS = re.compile(
-    r"(year|yr|date|time|month|week|day|quarter|period|^t$|год|дата|время|месяц|недел|день|квартал|период)",
-    re.I)
+# подсказки ищем по целым словам имени: «week_start» — время, «education_years» и «days_since» — нет
+TIME_TOKENS = {"year", "yr", "date", "time", "month", "week", "day", "quarter", "period", "t", "dt", "ds",
+               "timestamp", "год", "дата", "время", "месяц", "неделя", "день", "квартал", "период"}
 UNIT_HINTS = re.compile(
     r"(^id$|_id$|^id_|state|country|region|city|store|shop|user|client|customer|unit|firm|company|"
     r"school|district|county|hospital|штат|стран|регион|город|магазин|клиент|пользоват|компан)",
@@ -179,13 +179,20 @@ def profile_column(s: pd.Series) -> ColumnProfile:
     return prof
 
 
+def name_tokens(name: str) -> list[str]:
+    """Слова имени колонки: snake_case, camelCase, пробелы, дефисы."""
+    parts = re.split(r"[_\s\-.]+|(?<=[a-zа-яё])(?=[A-ZА-ЯЁ])", name)
+    return [p.lower() for p in parts if p]
+
+
 def _time_score(df: pd.DataFrame, c: ColumnProfile) -> float:
-    if c.kind not in ("integer", "datetime", "numeric") or c.n_unique < 3:
+    # нецелые числа временем не бывают (это длительности, доли, суммы)
+    if c.kind not in ("integer", "datetime") or c.n_unique < 3:
         return 0.0
     score = 0.0
     if c.kind == "datetime":
         score += 3
-    if TIME_HINTS.search(c.name):
+    if TIME_TOKENS & set(name_tokens(c.name)):
         score += 2
     if c.kind == "integer":
         if 1900 <= c.min and c.max <= 2100:
@@ -193,8 +200,6 @@ def _time_score(df: pd.DataFrame, c: ColumnProfile) -> float:
         steps = np.diff(np.sort(df[c.name].dropna().unique()))
         if len(steps) and np.all(steps == steps[0]):
             score += 1
-    elif c.kind == "numeric" and score < 2:
-        return 0.0  # непрерывная колонка без подсказок в имени — не время
     return score
 
 
@@ -215,6 +220,8 @@ def _detect_structure(df: pd.DataFrame, cols: list[ColumnProfile]):
     for ts, t in time_cands:
         if df[t].nunique() == n and ts_col is None:
             ts_col = t
+        if n / df[t].nunique() < 1.5:
+            continue  # почти каждый период встречается один раз — это временной ряд, а не панель
         for us, u in unit_cands:
             if u == t or df.duplicated([u, t]).any():
                 continue

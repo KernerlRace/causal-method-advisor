@@ -223,14 +223,17 @@ def overlap_balance(df: pd.DataFrame, card: DataCard, query: CausalQuery) -> Dia
     auc = float(roc_auc_score(d, ps))
     extreme = float(np.mean((ps < EXTREME_PS) | (ps > 1 - EXTREME_PS)))
     max_smd = float(smd.abs().max())
+    # при рандомизации SMD ~ N(0, 1/n1 + 1/n0): на малых выборках случайный дисбаланс велик,
+    # поэтому пороги не ниже трёх стандартных ошибок
+    smd_noise = 3 * float(np.sqrt(1 / max((d == 1).sum(), 1) + 1 / max((d == 0).sum(), 1)))
     flags = []
     if extreme > POOR_OVERLAP_SHARE:
         flags.append("poor_overlap")
     elif extreme < GOOD_OVERLAP_SHARE:
         flags.append("good_overlap")
-    if auc < RANDOM_AUC and max_smd < BALANCED_SMD:
+    if auc < RANDOM_AUC and max_smd < max(BALANCED_SMD, smd_noise):
         flags.append("randomization_plausible")
-    if max_smd > IMBALANCED_SMD:
+    if max_smd > max(IMBALANCED_SMD, smd_noise):
         flags.append("imbalance")
     worst = smd.abs().sort_values(ascending=False).head(5)
     values = {"propensity_auc": auc, "extreme_propensity_share": extreme, "max_abs_smd": max_smd,

@@ -20,6 +20,7 @@ good_flags:
   high_dim: one score instead of many covariates avoids the curse of dimensionality
   good_overlap: propensity distributions of the groups overlap
 bad_flags:
+  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
   poor_overlap: scores are close to 0 or 1, there is nobody to match with
 prefer_over:
   matching: many covariates make direct matching impractical

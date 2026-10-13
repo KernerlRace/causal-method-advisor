@@ -19,6 +19,7 @@ diagnostics: [overlap, balance, sample_size]
 good_flags:
   good_overlap: weights will stay moderate
 bad_flags:
+  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
   poor_overlap: extreme weights make the estimate unstable
 libraries: [dowhy, causallib]
 sources: ["Molak ch. 9", "Facure ch. 11"]
