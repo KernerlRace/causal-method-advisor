@@ -1,0 +1,18 @@
+id: sensitivity_analysis
+name: Sensitivity analysis for hidden confounding
+name_ru: Анализ чувствительности к скрытым конфаундерам
+family: sensitivity
+question_types: [effect]
+estimand: bounds on the effect
+summary: When the effect is not identified, estimate it under stated assumptions and show how strong hidden confounding would have to be to overturn the conclusion.
+requires:
+  structure: [cross_section, panel]
+  treatment_types: [binary, categorical, continuous]
+  min_rows: 30
+assumptions:
+  - a plausible upper bound on the strength of hidden confounders can be argued
+diagnostics: [sample_size]
+good_flags:
+  hidden_confounding: the honest option when hidden confounding cannot be ruled out
+libraries: [pysensemakr, dowhy]
+sources: ["Molak ch. 8, 15"]

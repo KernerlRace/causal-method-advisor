@@ -1,0 +1,27 @@
+id: lingam
+name: LiNGAM
+name_ru: LiNGAM
+family: discovery
+question_types: [discovery]
+estimand: causal graph (full DAG)
+summary: Functional discovery that uses non-Gaussian noise in linear relationships to recover the full direction of every edge.
+requires:
+  structure: [cross_section]
+  min_rows: 200
+  min_numeric_cols: 2
+recommended:
+  min_rows: 1000
+assumptions:
+  - relationships are linear
+  - noise terms are non-Gaussian
+  - no hidden confounders
+diagnostics: [normality, sample_size]
+good_flags:
+  non_gaussian: non-Gaussian data lets LiNGAM orient every edge
+bad_flags:
+  gaussian_data: with Gaussian noise LiNGAM cannot identify directions
+  hidden_confounding: LiNGAM assumes no hidden confounders
+prefer_over:
+  pc: orients all edges instead of returning an equivalence class
+libraries: [lingam, gcastle]
+sources: ["Molak ch. 13"]

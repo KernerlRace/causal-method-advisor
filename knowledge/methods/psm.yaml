@@ -1,0 +1,27 @@
+id: psm
+name: Propensity score matching
+name_ru: Мэтчинг по propensity score
+family: backdoor
+question_types: [effect]
+estimand: ATT
+summary: Compress all confounders into a single probability of receiving treatment and match units on it.
+requires:
+  structure: [cross_section]
+  treatment_types: [binary]
+  min_rows: 100
+recommended:
+  min_rows: 500
+assumptions:
+  - all confounders are observed
+  - the propensity score model is correctly specified
+  - overlap between groups
+diagnostics: [overlap, balance, sample_size]
+good_flags:
+  high_dim: one score instead of many covariates avoids the curse of dimensionality
+  good_overlap: propensity distributions of the groups overlap
+bad_flags:
+  poor_overlap: scores are close to 0 or 1, there is nobody to match with
+prefer_over:
+  matching: many covariates make direct matching impractical
+libraries: [dowhy, causalml]
+sources: ["Molak ch. 9", "Facure ch. 11"]

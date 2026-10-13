@@ -1,0 +1,24 @@
+id: ipw
+name: Inverse probability weighting
+name_ru: Взвешивание на обратную вероятность (IPW)
+family: backdoor
+question_types: [effect]
+estimand: ATE
+summary: Reweight observations by the inverse probability of the treatment they received, creating a pseudo-population without confounding.
+requires:
+  structure: [cross_section]
+  treatment_types: [binary, categorical]
+  min_rows: 100
+recommended:
+  min_rows: 500
+assumptions:
+  - all confounders are observed
+  - the propensity score model is correct
+  - treatment probabilities are bounded away from 0 and 1
+diagnostics: [overlap, balance, sample_size]
+good_flags:
+  good_overlap: weights will stay moderate
+bad_flags:
+  poor_overlap: extreme weights make the estimate unstable
+libraries: [dowhy, causallib]
+sources: ["Molak ch. 9", "Facure ch. 11"]

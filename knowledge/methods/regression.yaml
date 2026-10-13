@@ -1,0 +1,27 @@
+id: regression
+name: Linear regression with an adjustment set
+name_ru: Линейная регрессия с контролем конфаундеров
+family: backdoor
+question_types: [effect]
+estimand: ATE
+summary: Regress the outcome on the treatment plus a set of confounders that blocks all back-door paths.
+requires:
+  structure: [cross_section, panel]
+  treatment_types: [binary, categorical, continuous]
+  min_rows: 30
+recommended:
+  min_rows: 100
+assumptions:
+  - all confounders are observed and included
+  - no mediators or colliders are included as controls
+  - the relationship is approximately linear (or correctly specified)
+diagnostics: [overlap, balance, sample_size]
+good_flags:
+  small_sample: on small samples a simple model is more stable than ML estimators
+  randomization_plausible: in an experiment, regression adjustment reduces variance
+bad_flags:
+  policy_design: with a treated-group and post-period design, plain regression ignores the time structure that DiD, SC and SDID exploit
+  poor_overlap: regression silently extrapolates where there are no comparable units
+  high_dim: many covariates increase the risk of misspecification
+libraries: [statsmodels, dowhy]
+sources: ["Molak ch. 3, 7", "Facure ch. 5"]

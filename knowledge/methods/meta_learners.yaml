@@ -1,0 +1,28 @@
+id: meta_learners
+name: Meta-learners (S-, T-, X-learner)
+name_ru: Мета-лёрнеры для неоднородного эффекта
+family: cate
+question_types: [heterogeneity]
+estimand: CATE
+summary: Fit machine-learning outcome models and use their differences to estimate who benefits from the treatment more and who less.
+requires:
+  structure: [cross_section]
+  treatment_types: [binary, categorical]
+  min_rows: 200
+recommended:
+  min_rows: 2000
+assumptions:
+  - no unobserved confounders (holds automatically in an experiment)
+  - overlap between groups on covariates (positivity)
+  - SUTVA
+diagnostics: [balance, overlap, sample_size]
+good_flags:
+  randomization_plausible: on experimental data meta-learners give an honest estimate of heterogeneity
+  large_sample: enough data for flexible models
+bad_flags:
+  small_sample: flexible models overfit on small samples, CATE will be noisy
+  poor_overlap: the model extrapolates in regions without overlap
+prefer_over:
+  diff_in_means: the question is not only about the average effect but about who benefits most
+libraries: [econml, causalml]
+sources: ["Molak ch. 9-10"]

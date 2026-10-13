@@ -1,0 +1,29 @@
+id: doubly_robust
+name: Doubly robust estimation (AIPW / DR-learner)
+name_ru: Дважды робастная оценка
+family: backdoor
+question_types: [effect, heterogeneity]
+estimand: ATE
+summary: Combine an outcome model and a propensity model; the estimate is consistent if at least one of them is correct.
+requires:
+  structure: [cross_section]
+  treatment_types: [binary, categorical]
+  min_rows: 200
+recommended:
+  min_rows: 1000
+assumptions:
+  - all confounders are observed
+  - overlap between groups
+  - at least one of the two models is correct
+diagnostics: [overlap, balance, sample_size]
+good_flags:
+  large_sample: flexible ML models can be used in both parts
+  high_dim: more robust to misspecification with many covariates
+bad_flags:
+  poor_overlap: the weighting part still suffers from extreme weights
+  small_sample: two models on a small sample give a noisy estimate
+prefer_over:
+  ipw: protects against an error in the propensity model
+  regression: protects against an error in the outcome model
+libraries: [econml, dowhy]
+sources: ["Molak ch. 10", "Facure ch. 12"]

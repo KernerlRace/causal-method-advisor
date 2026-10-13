@@ -1,0 +1,28 @@
+id: diff_in_means
+name: Difference in means (randomized experiment)
+name_ru: Разность средних в эксперименте
+family: rct
+question_types: [effect]
+estimand: ATE
+summary: When treatment is randomly assigned, the average effect is simply the difference in mean outcomes between the groups.
+requires:
+  structure: [cross_section]
+  treatment_types: [binary, categorical]
+  randomized: true
+  min_rows: 20
+recommended:
+  min_rows: 200
+assumptions:
+  - treatment was genuinely randomized
+  - SUTVA (one unit's treatment does not affect another unit's outcome)
+  - no differential attrition between groups
+diagnostics: [balance, sample_size]
+good_flags:
+  randomization_plausible: covariates are balanced, so randomization looks credible
+bad_flags:
+  imbalance: groups differ on covariates, so randomization is questionable
+  small_sample: few observations, the confidence interval will be wide
+prefer_over:
+  regression: in a clean experiment it is simpler and needs no outcome model
+libraries: [scipy.stats, statsmodels]
+sources: ["Molak ch. 2, 10", "Facure ch. 1-2"]

@@ -1,0 +1,33 @@
+id: synthetic_control
+name: Synthetic control
+name_ru: Синтетический контроль
+family: panel
+question_types: [effect]
+estimand: ATT
+summary: Build a weighted combination of control units that reproduces the treated unit before treatment and use it as the counterfactual afterwards.
+requires:
+  structure: [panel]
+  treatment_types: [binary]
+  min_treated_units: 1
+  min_control_units: 2
+  min_pre_periods: 3
+  min_post_periods: 1
+recommended:
+  min_control_units: 5
+  min_pre_periods: 10
+assumptions:
+  - the treated unit lies within the range of the control units (convex hull)
+  - a good pre-treatment fit means a good counterfactual after treatment
+  - no spillovers to the donor pool, no anticipation
+diagnostics: [pretrend_test, sc_pre_fit, sample_size]
+good_flags:
+  single_treated_unit: designed for one or a few treated units
+  pretrend_violated: does not require parallel trends, it matches the trajectory instead
+  sc_good_fit: the synthetic control reproduces the pre-treatment path well
+bad_flags:
+  sc_poor_fit: the synthetic control does not reproduce the pre-treatment path
+  treated_outside_hull: the treated unit is outside the range of controls, weights cannot match it
+  short_pre_period: too few pre-treatment periods to trust the fit
+  many_treated_units: with many treated units, DiD or SDID is usually more efficient
+libraries: [causalpy, pysyncon, cvxpy]
+sources: ["Molak ch. 11", "Facure ch. 15, 25"]

@@ -1,0 +1,25 @@
+id: front_door
+name: Front-door adjustment
+name_ru: Front-door критерий
+family: frontdoor
+question_types: [effect]
+estimand: ATE
+summary: If the whole effect flows through an observed mediator that is not confounded with the outcome, the effect is identified despite hidden treatment-outcome confounding.
+requires:
+  structure: [cross_section]
+  treatment_types: [binary, continuous]
+  needs: [mediator]
+  min_rows: 200
+recommended:
+  min_rows: 1000
+assumptions:
+  - the mediator captures the entire effect of the treatment on the outcome
+  - no unobserved confounding between treatment and mediator
+  - all back-door paths from mediator to outcome are blocked by the treatment
+diagnostics: [sample_size]
+good_flags:
+  hidden_confounding: front-door works where back-door adjustment is impossible
+bad_flags:
+  small_sample: two-stage estimation needs enough data
+libraries: [dowhy]
+sources: ["Molak ch. 6-7"]

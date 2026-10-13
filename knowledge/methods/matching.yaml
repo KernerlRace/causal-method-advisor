@@ -1,0 +1,24 @@
+id: matching
+name: Covariate matching
+name_ru: Мэтчинг по ковариатам
+family: backdoor
+question_types: [effect]
+estimand: ATT
+summary: For each treated unit, find a similar untreated unit; the effect is the average difference within pairs.
+requires:
+  structure: [cross_section]
+  treatment_types: [binary]
+  min_rows: 50
+recommended:
+  min_rows: 200
+assumptions:
+  - all confounders are observed
+  - overlap (every treated unit has comparable controls)
+diagnostics: [overlap, balance, sample_size]
+good_flags:
+  good_overlap: groups overlap well, so good matches exist
+bad_flags:
+  high_dim: with many covariates close neighbours barely exist (curse of dimensionality)
+  poor_overlap: some units have no comparable match
+libraries: [dowhy, causallib]
+sources: ["Molak ch. 9", "Facure ch. 10"]

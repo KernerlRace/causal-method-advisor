@@ -1,0 +1,24 @@
+id: ges
+name: Greedy equivalence search
+name_ru: Жадный поиск по классам эквивалентности (GES)
+family: discovery
+question_types: [discovery]
+estimand: causal graph (Markov equivalence class)
+summary: Score-based discovery that greedily adds and removes edges to maximise a score such as BIC.
+requires:
+  structure: [cross_section]
+  min_rows: 200
+  min_numeric_cols: 3
+recommended:
+  min_rows: 1000
+assumptions:
+  - causal sufficiency (no hidden common causes)
+  - the score matches the data distribution (BIC assumes linear Gaussian)
+diagnostics: [normality, sample_size]
+good_flags:
+  gaussian_data: the default BIC score fits linear Gaussian data
+bad_flags:
+  hidden_confounding: GES assumes no hidden confounders
+  small_sample: the score becomes unreliable
+libraries: [causal-learn, gcastle]
+sources: ["Molak ch. 13"]

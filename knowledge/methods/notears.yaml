@@ -1,0 +1,24 @@
+id: notears
+name: NOTEARS / GOLEM
+name_ru: NOTEARS / GOLEM
+family: discovery
+question_types: [discovery]
+estimand: causal graph (DAG)
+summary: Gradient-based discovery that treats graph search as continuous optimisation with a smooth acyclicity constraint.
+requires:
+  structure: [cross_section]
+  min_rows: 500
+  min_numeric_cols: 3
+recommended:
+  min_rows: 2000
+assumptions:
+  - no hidden confounders
+  - results depend on variable scales, so standardise the data and treat the output with caution
+diagnostics: [sample_size]
+good_flags:
+  large_sample: optimisation is more stable on large samples
+bad_flags:
+  hidden_confounding: assumes no hidden confounders
+  small_sample: optimisation results are unstable
+libraries: [gcastle, causalnex]
+sources: ["Molak ch. 13"]

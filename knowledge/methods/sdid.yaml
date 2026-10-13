@@ -1,0 +1,35 @@
+id: sdid
+name: Synthetic difference-in-differences
+name_ru: Синтетическая разность разностей (SDID)
+family: panel
+question_types: [effect]
+estimand: ATT
+summary: Weighted DiD with unit weights (like synthetic control, but only trends must match, not levels) and time weights that focus on pre-periods most similar to the post-period.
+requires:
+  structure: [panel]
+  treatment_types: [binary]
+  min_treated_units: 1
+  min_control_units: 2
+  min_pre_periods: 2
+  min_post_periods: 1
+recommended:
+  min_control_units: 5
+  min_pre_periods: 5
+assumptions:
+  - parallel trends after reweighting units and periods
+  - no anticipation of the treatment
+  - SUTVA (no spillovers to control units)
+diagnostics: [pretrend_test, sc_pre_fit, sample_size]
+good_flags:
+  pretrend_violated: unit and time weights repair non-parallel trends
+  single_treated_unit: works with a single treated unit (placebo-based inference)
+  treated_outside_hull: the intercept lets the treated unit differ in level from its synthetic control
+  staggered: handle staggered adoption by running SDID per adoption cohort and averaging
+bad_flags:
+  short_pre_period: too few pre-periods to estimate weights
+  few_controls: too few control units to build weights
+prefer_over:
+  did: pre-treatment trends are not parallel
+  synthetic_control: lower variance thanks to fixed effects, and levels need not match
+libraries: [pysynthdid, cvxpy, statsmodels]
+sources: ["Facure ch. 25"]
