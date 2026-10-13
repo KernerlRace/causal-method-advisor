@@ -72,3 +72,30 @@ PDF собираются из `docs/*.md`:
 .venv/Scripts/python.exe -m datagen.build --n 50000 --seed 1 --workers 9
 .venv/Scripts/python.exe -m datagen.build_sft --per-scenario 2
 ```
+
+## Этап 4: бейзлайн без нейросети и интерфейс
+
+```bash
+.venv/Scripts/python.exe scripts/train_baseline.py --max-parser 40000
+.venv/Scripts/python.exe -m eval.run_eval --backend baseline
+.venv/Scripts/streamlit run app.py
+```
+
+- `advisor/baseline.py` — разбор вопроса (TF-IDF + логрегрессия, бустинг по парам «вопрос × колонка»)
+  и ранжирование методов (по модели на метод, предсказывает вес в эталоне).
+- `advisor/pipeline.py` — сквозной `advise(df, question, backend)`; бэкенд подключаемый.
+- `app.py` — веб-интерфейс: CSV или демо → вопрос → разбор (роли можно поправить) → совет,
+  проверки допущений, карточки методов, таблица правил.
+- `data/demo/` — 12 демо-датасетов с вопросами (`demos.json`), включая реальный Prop 99.
+
+Бейзлайн на test (4970 вопросов, `eval/results/baseline_test.json`):
+
+| метрика | бейзлайн | только правила |
+|---|---|---|
+| лучший метод при верном разборе (top-1) | 99.9% | 69.1% |
+| сквозная top-1 | 83.6% | — |
+| воздействие и исход найдены верно | 85.4% (RU 96.6%) | — |
+| тип вопроса / на незнакомых шаблонах | 98.2% / 78.9% | — |
+
+Слабые места бейзлайна — синонимы («salary» ↔ `annual_pay`) и незнакомые формулировки.
+Их и должна закрыть своя модель.

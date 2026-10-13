@@ -83,7 +83,10 @@ def main() -> None:
     stats, lengths, sample_pool = Counter(), [], []
     for path in sorted(glob.glob(a.scenarios)):
         for line in open(path, encoding="utf-8"):
-            rec = json.loads(line)
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:  # файл сценариев может ещё дописываться
+                continue
             for ex in examples_for(rec, a.per_scenario):
                 files[ex["split"]].write(json.dumps(ex, ensure_ascii=False) + "\n")
                 stats[(ex["split"], "all")] += 1
