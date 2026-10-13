@@ -19,3 +19,4 @@ runs/
 .idea/
 Thumbs.db
 data/scenarios/
+models/

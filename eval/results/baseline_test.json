@@ -1,0 +1,13 @@
+{
+  "mode (gold parse)": "0.999  (n=4970)",
+  "parse.exact (all fields)": "0.816  (n=4970)",
+  "parse.treatment+outcome": "0.854  (n=4970)",
+  "parse.treatment+outcome (ru)": "0.966  (n=769)",
+  "parse.type": "0.982  (n=4970)",
+  "parse.type (heldout tmpl)": "0.789  (n=427)",
+  "refuse correct (gold parse)": "1.000  (n=232)",
+  "top1 (gold parse)": "0.999  (n=4738)",
+  "top1 end-to-end": "0.836  (n=4738)",
+  "top1 rules-only": "0.691  (n=4738)",
+  "top3 (gold parse)": "1.000  (n=4738)"
+}

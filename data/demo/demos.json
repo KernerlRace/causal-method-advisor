@@ -1,0 +1,62 @@
+[
+  {
+    "file": "smoking.csv",
+    "question": "Did Proposition 99 (the `california` law) reduce cigarette sales (`cigsale`)?",
+    "expected": "Real data (Abadie et al.): one treated state, non-parallel trends → SDID / synthetic control"
+  },
+  {
+    "file": "marketing_ab_test.csv",
+    "question": "We ran an A/B test with free shipping. Did it increase the conversion rate?",
+    "expected": "Randomized experiment → difference in means"
+  },
+  {
+    "file": "training_threshold.csv",
+    "question": "Employees with an appraisal score of at least 63.8 got job training. Did the training raise productivity?",
+    "expected": "Treatment assigned by a threshold → regression discontinuity"
+  },
+  {
+    "file": "tax_instrument.csv",
+    "question": "Does a higher tax rate reduce cigarette sales? Local economic conditions affect both and we can't measure them, but the neighbouring state's policy (`neighbor_policy`) shifts the tax rate without affecting sales directly.",
+    "expected": "Hidden confounder + instrument → IV"
+  },
+  {
+    "file": "drug_rollout_panel.csv",
+    "question": "The new drug was introduced in only one clinic. Did it shorten recovery days?",
+    "expected": "One treated unit, many controls → SDID / synthetic control"
+  },
+  {
+    "file": "tutoring_staggered.csv",
+    "question": "Schools started tutoring at different times. What is the effect of tutoring on the graduation rate?",
+    "expected": "Staggered adoption → SDID per cohort, naive TWFE is biased"
+  },
+  {
+    "file": "push_observational.csv",
+    "question": "Users who enabled push notifications seem to retain better. What is the causal effect of push notifications on retention?",
+    "expected": "Large observational data, non-linear confounding → DML / doubly robust"
+  },
+  {
+    "file": "app_metrics_discovery.csv",
+    "question": "What causes what among these app metrics?",
+    "expected": "No hypothesis yet, non-Gaussian data → LiNGAM"
+  },
+  {
+    "file": "medicaid_timeseries.csv",
+    "question": "After the Medicaid expansion, did GDP per capita change because of it?",
+    "expected": "Single series without controls → interrupted time series"
+  },
+  {
+    "file": "push_unidentifiable.csv",
+    "question": "Did push notifications increase retention? Users chose to enable them, and their engagement, which we don't measure, affects both.",
+    "expected": "Hidden confounder, no instrument or mediator → honest refusal + sensitivity analysis"
+  },
+  {
+    "file": "remote_work_frontdoor.csv",
+    "question": "Does remote work improve productivity? Worker motivation is unobserved, but remote work affects productivity only through the skills score (`skills_score`).",
+    "expected": "Hidden confounder + full mediator → front-door"
+  },
+  {
+    "file": "physio_continuous.csv",
+    "question": "Как количество часов физиотерапии (`physio_hours`) влияет на `recovery_days`?",
+    "expected": "Continuous treatment, linear relationships → regression (question in Russian)"
+  }
+]
