@@ -5,6 +5,7 @@ family: backdoor
 question_types: [effect]
 estimand: ATE
 summary: Regress the outcome on the treatment plus a set of confounders that blocks all back-door paths.
+summary_ru: Регрессия исхода на воздействие и набор конфаундеров, закрывающий back-door пути.
 requires:
   structure: [cross_section, panel]
   treatment_types: [binary, categorical, continuous]
@@ -17,12 +18,18 @@ assumptions:
   - the relationship is approximately linear (or correctly specified)
 diagnostics: [overlap, balance, sample_size]
 good_flags:
+  linear_ok: relationships look linear, so a linear model is adequate
   small_sample: on small samples a simple model is more stable than ML estimators
   randomization_plausible: in an experiment, regression adjustment reduces variance
 bad_flags:
-  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
+  nonlinear: the outcome depends on the covariates non-linearly, so a linear model is misspecified
+  hidden_confounding: it assumes all confounders are observed, but a hidden confounder is suspected
   policy_design: with a treated-group and post-period design, plain regression ignores the time structure that DiD, SC and SDID exploit
   poor_overlap: regression silently extrapolates where there are no comparable units
   high_dim: many covariates increase the risk of misspecification
 libraries: [statsmodels, dowhy]
 sources: ["Molak ch. 3, 7", "Facure ch. 5"]
+assumptions_ru:
+  - все конфаундеры наблюдаемы и включены в модель
+  - в модель не добавлены медиаторы и коллайдеры
+  - связь близка к линейной

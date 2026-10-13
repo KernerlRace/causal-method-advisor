@@ -30,6 +30,8 @@ EXTREME_PS, POOR_OVERLAP_SHARE, GOOD_OVERLAP_SHARE = 0.05, 0.10, 0.02
 RANDOM_AUC, BALANCED_SMD, IMBALANCED_SMD = 0.60, 0.10, 0.25
 SC_GOOD_R2, SC_POOR_R2, OUTSIDE_HULL_SHARE = 0.90, 0.75, 0.50
 HAC_MIN_PERIODS, MATERIAL_DRIFT = 12, 0.10
+ITS_SHORT_PRE = 30
+NONLIN_GAIN, NONLIN_SUBSAMPLE = 0.05, 3000
 WEAK_IV_F = 10.0
 
 
@@ -48,7 +50,21 @@ def _na(diag_id: str, why: str) -> DiagResult:
 
 # ---------- размер выборки и устройство панели ----------
 
-def sample_size(card: DataCard, query: CausalQuery, design: TreatmentDesign | None) -> DiagResult:
+def series_split(df: pd.DataFrame, card: DataCard, query: CausalQuery) -> tuple[int, int] | None:
+    """Для одиночного ряда: сколько периодов до и после начала воздействия."""
+    if card.structure != "time_series" or not card.time_col or not query.treatment:
+        return None
+    if card.column(query.treatment).kind != "binary":
+        return None
+    d = to_bool(df[query.treatment]).values[np.argsort(df[card.time_col].astype(str).values)]
+    if not d.any():
+        return None
+    first = int(np.argmax(d))
+    return first, len(d) - first
+
+
+def sample_size(df: pd.DataFrame, card: DataCard, query: CausalQuery,
+                design: TreatmentDesign | None) -> DiagResult:
     flags, values = [], {"n_rows": card.n_rows}
     covs = covariate_columns(card, query)
     values["n_covariates"] = len(covs)
@@ -72,6 +88,13 @@ def sample_size(card: DataCard, query: CausalQuery, design: TreatmentDesign | No
             flags.append("staggered")
         msg = (f"{design.n_treated_units} treated and {design.n_control_units} control units, "
                f"{design.n_pre_periods} pre- and {design.n_post_periods} post-treatment periods")
+    elif (split := series_split(df, card, query)) is not None:
+        n_pre, n_post = split
+        values.update(n_pre_periods=n_pre, n_post_periods=n_post)
+        flags.append("no_controls")  # одиночный ряд: контрольной группы нет
+        if n_pre < ITS_SHORT_PRE:
+            flags.append("short_pre_period")
+        msg = f"a single series with {n_pre} periods before and {n_post} after the intervention"
     else:
         if card.n_rows < SMALL_SAMPLE:
             flags.append("small_sample")
@@ -178,7 +201,8 @@ def sc_pre_fit(df: pd.DataFrame, card: DataCard, query: CausalQuery,
 def covariate_columns(card: DataCard, query: CausalQuery) -> list[str]:
     if query.covariates is not None:
         return list(query.covariates)
-    skip = query.role_columns()
+    # переменная порога — конфаундер (определяет воздействие и влияет на исход), её нужно учитывать
+    skip = query.role_columns() - {query.running_variable}
     if card.panel:
         skip |= {card.panel.unit, card.panel.time}
         for d in card.designs:
@@ -231,7 +255,10 @@ def overlap_balance(df: pd.DataFrame, card: DataCard, query: CausalQuery) -> Dia
         flags.append("poor_overlap")
     elif extreme < GOOD_OVERLAP_SHARE:
         flags.append("good_overlap")
-    if auc < RANDOM_AUC and max_smd < max(BALANCED_SMD, smd_noise):
+    # баланс по наблюдаемым ковариатам не доказывает рандомизацию, если пользователь сам
+    # сообщает о скрытом конфаундере или о том, что воздействие выбирали
+    if (auc < RANDOM_AUC and max_smd < max(BALANCED_SMD, smd_noise)
+            and not query.hidden_confounding and query.randomized is not False):
         flags.append("randomization_plausible")
     if max_smd > max(IMBALANCED_SMD, smd_noise):
         flags.append("imbalance")
@@ -297,28 +324,69 @@ def find_running_variable(df: pd.DataFrame, card: DataCard, query: CausalQuery) 
     return DiagResult("running_variable", True, values, flags, msg)
 
 
+def nonlinearity(df: pd.DataFrame, card: DataCard, query: CausalQuery) -> DiagResult:
+    """Насколько бустинг предсказывает исход лучше линейной модели (кросс-валидированный R²).
+    Заметный выигрыш = связи нелинейны, линейная регрессия будет неверно специфицирована."""
+    from sklearn.ensemble import HistGradientBoostingRegressor
+    from sklearn.linear_model import LinearRegression
+    from sklearn.model_selection import cross_val_score
+
+    if card.structure != "cross_section" or not (query.treatment and query.outcome):
+        return _na("nonlinearity", "needs cross-sectional data with a treatment and an outcome")
+    covs = covariate_columns(card, query)
+    if not covs:
+        return _na("nonlinearity", "no covariates")
+    data = df.sample(n=min(len(df), NONLIN_SUBSAMPLE), random_state=0)
+    kind = card.column(query.treatment).kind
+    if kind == "binary":
+        t = to_bool(data[query.treatment]).astype(float).rename("__t").to_frame()
+    elif kind in ("numeric", "integer"):
+        t = data[query.treatment].astype(float).rename("__t").to_frame()
+    else:  # несколько вариантов воздействия — one-hot
+        t = pd.get_dummies(data[query.treatment].astype(str), prefix="__t", drop_first=True).astype(float)
+    X = pd.concat([_design_matrix(data, covs), t], axis=1)
+    X = X.fillna(X.median()).fillna(0.0)
+    y = data[query.outcome].astype(float).values
+    r2_lin = float(np.mean(cross_val_score(LinearRegression(), X.values, y, cv=3, scoring="r2")))
+    gbm = HistGradientBoostingRegressor(max_iter=100, learning_rate=0.15)
+    r2_gbm = float(np.mean(cross_val_score(gbm, X.values, y, cv=3, scoring="r2")))
+    gain = r2_gbm - r2_lin
+    flag = "nonlinear" if gain > NONLIN_GAIN else "linear_ok"
+    return DiagResult("nonlinearity", True, {"r2_linear": r2_lin, "r2_boosting": r2_gbm, "gain": gain}, [flag],
+                      f"boosting explains the outcome with R2={r2_gbm:.2f} vs {r2_lin:.2f} for a linear model")
+
+
 def normality(df: pd.DataFrame, card: DataCard, query: CausalQuery) -> DiagResult:
-    """Доля негауссовских непрерывных переменных (тест Жарка–Бера). Грубый прокси для LiNGAM."""
+    """Доля переменных с негауссовским шумом: тест Жарка–Бера по остаткам регрессии каждой переменной
+    на остальные. Остатки ближе к шуму, чем сами переменные (сумма многих причин гауссеет по ЦПТ)."""
     cols = [c.name for c in card.columns if c.kind in ("numeric", "integer") and c.n_unique >= 10]
     if len(cols) < 2:
         return _na("normality", "fewer than 2 continuous variables")
-    pvals = {c: float(stats.jarque_bera(df[c].dropna()).pvalue) for c in cols}
+    X = df[cols].astype(float)
+    X = ((X - X.mean()) / X.std()).fillna(0.0).values
+    pvals = {}
+    for j, c in enumerate(cols):
+        others = np.delete(X, j, axis=1)
+        A = np.column_stack([np.ones(len(X)), others])
+        resid = X[:, j] - A @ np.linalg.lstsq(A, X[:, j], rcond=None)[0]
+        pvals[c] = float(stats.jarque_bera(resid).pvalue)
     share = float(np.mean([p < 0.01 for p in pvals.values()]))
     flags = ["non_gaussian" if share >= 0.5 else "gaussian_data"]
     return DiagResult("normality", True, {"non_gaussian_share": share, "p_values": pvals}, flags,
-                      f"{share:.0%} of continuous variables are clearly non-Gaussian")
+                      f"{share:.0%} of variables have clearly non-Gaussian noise")
 
 
 # ---------- запуск всего применимого ----------
 
 def run_diagnostics(df: pd.DataFrame, card: DataCard, query: CausalQuery) -> dict[str, DiagResult]:
     design = card.design_for(query.treatment) if card.structure == "panel" else None
-    results = [sample_size(card, query, design)]
+    results = [sample_size(df, card, query, design)]
     if query.question_type in ("effect", "heterogeneity"):
         if card.structure == "panel":
             results += [pretrend_test(df, card, query, design), sc_pre_fit(df, card, query, design)]
         elif card.structure == "cross_section":
-            results += [overlap_balance(df, card, query), find_running_variable(df, card, query)]
+            results += [overlap_balance(df, card, query), find_running_variable(df, card, query),
+                        nonlinearity(df, card, query)]
             if query.instrument:
                 results.append(first_stage_strength(df, card, query))
     if query.question_type == "discovery":

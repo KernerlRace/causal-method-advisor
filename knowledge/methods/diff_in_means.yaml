@@ -5,6 +5,7 @@ family: rct
 question_types: [effect]
 estimand: ATE
 summary: When treatment is randomly assigned, the average effect is simply the difference in mean outcomes between the groups.
+summary_ru: При случайном назначении эффект равен разнице средних исхода между группами.
 requires:
   structure: [cross_section]
   treatment_types: [binary, categorical]
@@ -26,3 +27,7 @@ prefer_over:
   regression: in a clean experiment it is simpler and needs no outcome model
 libraries: [scipy.stats, statsmodels]
 sources: ["Molak ch. 2, 10", "Facure ch. 1-2"]
+assumptions_ru:
+  - воздействие действительно назначено случайно
+  - "SUTVA: воздействие на одних не влияет на исход других"
+  - нет выбывания участников, зависящего от группы

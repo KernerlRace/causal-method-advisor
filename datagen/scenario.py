@@ -52,6 +52,42 @@ def answer_mode(gold: dict[str, float], refuse: bool = False) -> str:
     return "options" if sum(w >= 0.9 for w in gold.values()) >= 2 else "recommend"
 
 
+def reconcile_gold(name: str, gold: dict[str, float], flags: set[str], params: dict) -> dict[str, float]:
+    """Согласует эталон с тем, что реально показали диагностики.
+
+    Модель видит не механизм порождения данных, а профиль и диагностики. Если тест случайно не увидел
+    заложенное (или увидел то, чего нет), аналитик с теми же цифрами выбрал бы другой метод — и эталон
+    должен совпадать с его выбором, иначе обучающие примеры противоречат своему же входу.
+    """
+    g = dict(gold)
+    if name == "panel_parallel" and "pretrend_violated" in flags:
+        g = {"sdid": 1.0, "did": 0.5, "synthetic_control": 0.2}
+    if name == "panel_factor":
+        if "pretrend_ok" in flags:
+            g["did"] = 0.6
+        if "sc_good_fit" in flags and "treated_outside_hull" not in flags:
+            g["synthetic_control"] = 0.9
+        elif "sc_poor_fit" in flags or "treated_outside_hull" in flags:
+            g["synthetic_control"] = 0.4
+    if name == "rct" and "imbalance" in flags:
+        g = {"regression": 1.0, "diff_in_means": 0.8}  # случайный дисбаланс → корректировка ковариатами
+    if name == "continuous_treatment":
+        if "nonlinear" in flags:
+            g = {"dml": 1.0, "causal_forest": 0.6, "regression": 0.3}
+        elif "linear_ok" in flags:
+            g = {"regression": 1.0, "dml": 0.8}
+    if name == "backdoor_large" and "linear_ok" in flags:
+        g["regression"] = 0.6
+    if name == "backdoor_small" and "nonlinear" in flags:
+        g = {"regression": 0.6, "doubly_robust": 1.0, "psm": 0.6, "ipw": 0.5}
+    if name.startswith("discovery") and name != "discovery_hidden":
+        if "gaussian_data" in flags:
+            g = {"pc": 1.0, "ges": 1.0, "notears": 0.6, "fci": 0.6, "lingam": 0.1}
+        elif "non_gaussian" in flags:
+            g = {"lingam": 1.0, "pc": 0.6, "ges": 0.5, "notears": 0.5, "fci": 0.5}
+    return g
+
+
 def prune_gold(gold: dict[str, float], n_rows: int) -> dict[str, float]:
     """Убирает методы, которым заведомо не хватит строк (жёсткий min_rows из карточки)."""
     cards = load_cards()

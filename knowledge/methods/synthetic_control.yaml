@@ -5,6 +5,7 @@ family: panel
 question_types: [effect]
 estimand: ATT
 summary: Build a weighted combination of control units that reproduces the treated unit before treatment and use it as the counterfactual afterwards.
+summary_ru: Взвешенная комбинация контрольных объектов воспроизводит объект с воздействием до воздействия и служит контрфактом после.
 requires:
   structure: [panel]
   treatment_types: [binary]
@@ -31,3 +32,7 @@ bad_flags:
   many_treated_units: with many treated units, DiD or SDID is usually more efficient
 libraries: [causalpy, pysyncon, cvxpy]
 sources: ["Molak ch. 11", "Facure ch. 15, 25"]
+assumptions_ru:
+  - объект с воздействием лежит в диапазоне контрольных
+  - хорошая подгонка до воздействия означает хороший контрфакт после
+  - нет перетока эффекта и ожидания воздействия

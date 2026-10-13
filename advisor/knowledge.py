@@ -18,7 +18,7 @@ FAMILIES = {"rct", "cate", "backdoor", "iv", "frontdoor", "rdd", "panel", "times
 THRESHOLDS = {"min_rows", "min_treated_units", "min_control_units", "min_pre_periods",
               "min_post_periods", "min_numeric_cols"}
 DIAGNOSTICS = {"balance", "overlap", "sample_size", "first_stage_strength", "running_variable",
-               "pretrend_test", "sc_pre_fit", "normality"}
+               "pretrend_test", "sc_pre_fit", "normality", "nonlinearity"}
 # все флаги, которые могут выставить диагностики или запрос; карточки ссылаются только на них
 FLAGS = {
     "randomization_plausible", "imbalance", "good_overlap", "poor_overlap",
@@ -27,12 +27,12 @@ FLAGS = {
     "single_treated_unit", "many_treated_units", "staggered", "short_pre_period",
     "few_controls", "no_controls", "has_controls", "policy_design",
     "running_variable_found", "sharp_cutoff", "weak_instrument",
-    "gaussian_data", "non_gaussian", "hidden_confounding",
+    "gaussian_data", "non_gaussian", "hidden_confounding", "nonlinear", "linear_ok",
 }
 
 REQUIRED_KEYS = {"id", "name", "name_ru", "family", "question_types", "estimand", "summary",
                  "requires", "assumptions", "diagnostics", "libraries", "sources"}
-OPTIONAL_KEYS = {"recommended", "good_flags", "bad_flags", "prefer_over"}
+OPTIONAL_KEYS = {"recommended", "good_flags", "bad_flags", "prefer_over", "summary_ru", "assumptions_ru"}
 
 
 @dataclass(frozen=True)
@@ -53,6 +53,8 @@ class MethodCard:
     prefer_over: dict = field(default_factory=dict)
     libraries: tuple[str, ...] = ()
     sources: tuple[str, ...] = ()
+    summary_ru: str = ""
+    assumptions_ru: tuple[str, ...] = ()
 
 
 class CardError(ValueError):
@@ -97,6 +99,9 @@ def validate(raw: dict, source: str) -> MethodCard:
         if k in req and v < req[k]:
             raise CardError(f"{cid}: recommended.{k}={v} is below requires.{k}={req[k]}")
 
+    for key in ("assumptions", "assumptions_ru"):
+        if not all(isinstance(a, str) for a in raw.get(key) or []):
+            raise CardError(f"{cid}: every item of {key} must be a string (quote items containing ': ')")
     for key in ("good_flags", "bad_flags"):
         _check_subset(cid, key, raw.get(key) or {}, FLAGS)
 
@@ -108,6 +113,7 @@ def validate(raw: dict, source: str) -> MethodCard:
         good_flags=dict(raw.get("good_flags") or {}), bad_flags=dict(raw.get("bad_flags") or {}),
         prefer_over=dict(raw.get("prefer_over") or {}),
         libraries=tuple(raw["libraries"]), sources=tuple(raw["sources"]),
+        summary_ru=raw.get("summary_ru", ""), assumptions_ru=tuple(raw.get("assumptions_ru") or ()),
     )
 
 

@@ -5,6 +5,7 @@ family: backdoor
 question_types: [effect]
 estimand: ATE
 summary: Reweight observations by the inverse probability of the treatment they received, creating a pseudo-population without confounding.
+summary_ru: Наблюдения перевзвешиваются на обратную вероятность полученного воздействия.
 requires:
   structure: [cross_section]
   treatment_types: [binary, categorical]
@@ -19,7 +20,11 @@ diagnostics: [overlap, balance, sample_size]
 good_flags:
   good_overlap: weights will stay moderate
 bad_flags:
-  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
+  hidden_confounding: it assumes all confounders are observed, but a hidden confounder is suspected
   poor_overlap: extreme weights make the estimate unstable
 libraries: [dowhy, causallib]
 sources: ["Molak ch. 9", "Facure ch. 11"]
+assumptions_ru:
+  - все конфаундеры наблюдаемы
+  - модель propensity score верна
+  - вероятности воздействия далеки от 0 и 1

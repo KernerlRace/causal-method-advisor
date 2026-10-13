@@ -5,6 +5,7 @@ family: discovery
 question_types: [discovery]
 estimand: causal graph (full DAG)
 summary: Functional discovery that uses non-Gaussian noise in linear relationships to recover the full direction of every edge.
+summary_ru: Использует негауссовский шум в линейных связях, чтобы определить направление каждого ребра.
 requires:
   structure: [cross_section]
   min_rows: 200
@@ -25,3 +26,7 @@ prefer_over:
   pc: orients all edges instead of returning an equivalence class
 libraries: [lingam, gcastle]
 sources: ["Molak ch. 13"]
+assumptions_ru:
+  - связи линейны
+  - шум негауссовский
+  - нет скрытых конфаундеров

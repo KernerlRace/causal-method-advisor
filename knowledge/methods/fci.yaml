@@ -5,6 +5,7 @@ family: discovery
 question_types: [discovery]
 estimand: partial ancestral graph (PAG)
 summary: An extension of PC that allows hidden confounders and marks edges that may be explained by them.
+summary_ru: Расширение PC, допускающее скрытые конфаундеры и помечающее рёбра, которые они могут объяснять.
 requires:
   structure: [cross_section]
   min_rows: 200
@@ -23,3 +24,6 @@ prefer_over:
   pc: hidden confounders are plausible
 libraries: [causal-learn]
 sources: ["Molak ch. 14"]
+assumptions_ru:
+  - faithfulness
+  - наблюдения независимы

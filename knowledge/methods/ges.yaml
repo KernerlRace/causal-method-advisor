@@ -5,6 +5,7 @@ family: discovery
 question_types: [discovery]
 estimand: causal graph (Markov equivalence class)
 summary: Score-based discovery that greedily adds and removes edges to maximise a score such as BIC.
+summary_ru: Поиск структуры жадной оптимизацией оценки графа (например, BIC).
 requires:
   structure: [cross_section]
   min_rows: 200
@@ -22,3 +23,6 @@ bad_flags:
   small_sample: the score becomes unreliable
 libraries: [causal-learn, gcastle]
 sources: ["Molak ch. 13"]
+assumptions_ru:
+  - нет скрытых общих причин
+  - оценка соответствует распределению данных

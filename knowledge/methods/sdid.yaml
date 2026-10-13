@@ -5,6 +5,7 @@ family: panel
 question_types: [effect]
 estimand: ATT
 summary: Weighted DiD with unit weights (like synthetic control, but only trends must match, not levels) and time weights that focus on pre-periods most similar to the post-period.
+summary_ru: Взвешенная разность разностей с весами объектов (совпадать должны тренды, а не уровни) и весами периодов.
 requires:
   structure: [panel]
   treatment_types: [binary]
@@ -24,7 +25,7 @@ good_flags:
   pretrend_violated: unit and time weights repair non-parallel trends
   single_treated_unit: works with a single treated unit (placebo-based inference)
   treated_outside_hull: the intercept lets the treated unit differ in level from its synthetic control
-  staggered: handle staggered adoption by running SDID per adoption cohort and averaging
+  staggered: staggered adoption is handled by running SDID per adoption cohort and averaging
 bad_flags:
   short_pre_period: too few pre-periods to estimate weights
   few_controls: too few control units to build weights
@@ -33,3 +34,7 @@ prefer_over:
   synthetic_control: lower variance thanks to fixed effects, and levels need not match
 libraries: [pysynthdid, cvxpy, statsmodels]
 sources: ["Facure ch. 25"]
+assumptions_ru:
+  - параллельные тренды после перевзвешивания объектов и периодов
+  - нет ожидания воздействия
+  - нет перетока эффекта на контрольные объекты

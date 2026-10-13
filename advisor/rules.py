@@ -67,8 +67,10 @@ def build_facts(card: DataCard, query: CausalQuery, diags: dict[str, DiagResult]
         "min_pre_periods": design.n_pre_periods if design else None,
         "min_post_periods": design.n_post_periods if design else None,
     }
-    if card.structure == "time_series" and card.time_col:
-        counts["min_pre_periods"] = card.n_rows  # точка воздействия пока неизвестна: верхняя граница
+    if card.structure == "time_series":
+        sv = diags["sample_size"].values if "sample_size" in diags else {}
+        counts["min_pre_periods"] = sv.get("n_pre_periods", card.n_rows)
+        counts["min_post_periods"] = sv.get("n_post_periods")
     available = {k for k in ("instrument", "mediator", "running_variable") if getattr(query, k)}
     flags = all_flags(diags)
     if "running_variable_found" in flags:

@@ -5,6 +5,7 @@ family: backdoor
 question_types: [effect]
 estimand: ATT
 summary: Compress all confounders into a single probability of receiving treatment and match units on it.
+summary_ru: Все конфаундеры сжимаются в одну вероятность получить воздействие, объекты сопоставляются по ней.
 requires:
   structure: [cross_section]
   treatment_types: [binary]
@@ -20,9 +21,13 @@ good_flags:
   high_dim: one score instead of many covariates avoids the curse of dimensionality
   good_overlap: propensity distributions of the groups overlap
 bad_flags:
-  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
+  hidden_confounding: it assumes all confounders are observed, but a hidden confounder is suspected
   poor_overlap: scores are close to 0 or 1, there is nobody to match with
 prefer_over:
   matching: many covariates make direct matching impractical
 libraries: [dowhy, causalml]
 sources: ["Molak ch. 9", "Facure ch. 11"]
+assumptions_ru:
+  - все конфаундеры наблюдаемы
+  - модель propensity score верна
+  - группы пересекаются
