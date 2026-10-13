@@ -20,6 +20,7 @@ good_flags:
   small_sample: on small samples a simple model is more stable than ML estimators
   randomization_plausible: in an experiment, regression adjustment reduces variance
 bad_flags:
+  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
   policy_design: with a treated-group and post-period design, plain regression ignores the time structure that DiD, SC and SDID exploit
   poor_overlap: regression silently extrapolates where there are no comparable units
   high_dim: many covariates increase the risk of misspecification

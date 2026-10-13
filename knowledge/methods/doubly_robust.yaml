@@ -20,6 +20,7 @@ good_flags:
   large_sample: flexible ML models can be used in both parts
   high_dim: more robust to misspecification with many covariates
 bad_flags:
+  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
   poor_overlap: the weighting part still suffers from extreme weights
   small_sample: two models on a small sample give a noisy estimate
 prefer_over:

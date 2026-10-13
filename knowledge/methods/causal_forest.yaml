@@ -18,6 +18,7 @@ diagnostics: [overlap, sample_size]
 good_flags:
   large_sample: enough data to find subgroups with different effects
 bad_flags:
+  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
   small_sample: the trees will lack data, CATE will be noisy
 prefer_over:
   meta_learners: provides confidence intervals for CATE

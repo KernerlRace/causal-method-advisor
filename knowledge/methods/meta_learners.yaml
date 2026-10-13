@@ -20,6 +20,7 @@ good_flags:
   randomization_plausible: on experimental data meta-learners give an honest estimate of heterogeneity
   large_sample: enough data for flexible models
 bad_flags:
+  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
   small_sample: flexible models overfit on small samples, CATE will be noisy
   poor_overlap: the model extrapolates in regions without overlap
 prefer_over:

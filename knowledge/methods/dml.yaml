@@ -20,6 +20,7 @@ good_flags:
   large_sample: DML shines on large samples
   high_dim: handles many covariates and non-linear relationships
 bad_flags:
+  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
   policy_design: with a treated-group and post-period design, DML ignores the time structure that DiD, SC and SDID exploit
   small_sample: on small samples DML is unstable and loses to plain regression
 prefer_over:

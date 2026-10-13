@@ -18,6 +18,7 @@ diagnostics: [overlap, balance, sample_size]
 good_flags:
   good_overlap: groups overlap well, so good matches exist
 bad_flags:
+  hidden_confounding: assumes all confounders are observed, but a hidden confounder is suspected
   high_dim: with many covariates close neighbours barely exist (curse of dimensionality)
   poor_overlap: some units have no comparable match
 libraries: [dowhy, causallib]
