@@ -3,7 +3,7 @@
 По CSV и вопросу на естественном языке подсказывает методологию причинного анализа.
 Ядро — своя языковая модель, написанная и обученная с нуля.
 
-Подробный план в [PLAN.md](PLAN.md). Открытые вопросы к преподавателю — в [Вопросы_преподавателю.pdf](Вопросы_преподавателю.pdf).
+Подробный план в [PLAN.md](PLAN.md). Вопросы к преподавателю (на английском) — в [Questions_for_teacher.pdf](Questions_for_teacher.pdf).
 
 ## Установка (Windows, NVIDIA GPU)
 
@@ -23,5 +23,5 @@ uv pip install --python .venv/Scripts/python.exe -r requirements.txt
 PDF собираются из `docs/*.md`:
 
 ```bash
-.venv/Scripts/python.exe scripts/md_to_pdf.py docs/questions_for_teacher.md Вопросы_преподавателю.pdf
+.venv/Scripts/python.exe scripts/md_to_pdf.py docs/questions_for_teacher_en.md Questions_for_teacher.pdf
 ```
