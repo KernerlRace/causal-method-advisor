@@ -1,0 +1,22 @@
+# PyTorch ставится отдельно, под CUDA (см. README):
+#   uv pip install --python .venv/Scripts/python.exe torch --index-url https://download.pytorch.org/whl/cu126
+
+# данные и диагностики
+numpy
+pandas
+scipy
+statsmodels
+scikit-learn
+cvxpy
+
+# база знаний, UI, утилиты
+pyyaml
+streamlit
+matplotlib
+tqdm
+
+# документы
+reportlab
+
+# тесты
+pytest

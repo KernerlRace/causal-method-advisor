@@ -1,0 +1,20 @@
+# окружение
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# большие артефакты: генерируются скриптами, в git не храним
+data/corpus/*
+!data/corpus/.gitkeep
+data/sft/
+checkpoints/
+runs/
+*.pt
+*.safetensors
+
+# IDE / OS
+.vscode/
+.idea/
+Thumbs.db
