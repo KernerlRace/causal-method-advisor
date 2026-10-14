@@ -100,7 +100,7 @@ def test_training_is_deterministic_and_save_load_roundtrips(tok, tmp_path):
 @pytest.mark.skipif(not SAVED.exists(), reason="run python -m model.train_tokenizer first")
 def test_saved_tokenizer():
     saved = BPETokenizer.load(SAVED)
-    assert saved.vocab_size == 8192
+    assert saved.vocab_size == 16384
     assert list(saved.special) == default_special_tokens()
     for s in corpus():
         assert saved.decode(saved.encode(s)) == s
