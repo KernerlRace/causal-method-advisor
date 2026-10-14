@@ -28,3 +28,4 @@ models/*
 Questions_for_teacher.pdf
 docs/questions_for_teacher*.md
 data/*.log
+data/tokens/
