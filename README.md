@@ -16,8 +16,9 @@ that understands the question and explains the choice, while deterministic code 
 The model exists and trains; the web demo still runs on a classical-ML baseline until the model is wired in.
 
 > **Status:** the non-neural half is done — knowledge base, diagnostics, synthetic data, baseline and web UI.
-> The model's own BPE tokenizer and the 30M-parameter GPT-style decoder are written from scratch, and a first
-> 12-minute training run already beats the baseline on held-out questions. Next: pretraining and proper fine-tuning.
+> The model's own BPE tokenizer and the 34M-parameter GPT-style decoder are written from scratch; a first 12-minute
+> run already beat the baseline on held-out questions, and the model is now pretrained on an open corpus of Wikipedia
+> articles and a causal-inference handbook. Next: fine-tuning on the task with constrained decoding.
 
 <img src="docs/img/question.png" alt="Asking about California's Proposition 99 on the demo dataset">
 
@@ -59,9 +60,10 @@ mistakes in causal reasoning, so the model only reads the question and explains.
 | `advisor/baseline.py` | baseline backend: TF-IDF + logistic regression for question parsing, gradient boosting over (question × column) pairs, one model per method for ranking |
 | `advisor/pipeline.py` | end-to-end `advise(df, question, backend)` |
 | `app.py` | Streamlit UI: upload a CSV or pick a demo → ask → review the parsed roles → get advice, assumption checks and method cards |
-| `model/tokenizer.py` | byte-level BPE written from scratch: 8,192 tokens, 37 of them special (markup, question types, answer modes, one token per method); any string round-trips losslessly, and user text cannot smuggle in special tokens |
-| `model/transformer.py` | GPT-style decoder written from scratch: pre-norm blocks with RMSNorm, rotary position embeddings, SwiGLU, hand-written causal attention, tied embeddings, KV cache for generation — 29.9M parameters |
+| `model/tokenizer.py` | byte-level BPE written from scratch: 16,384 tokens learned on the open corpus and the task data, 37 of them special (markup, question types, answer modes, one token per method); any string round-trips losslessly, and user text cannot smuggle in special tokens |
+| `model/transformer.py` | GPT-style decoder written from scratch: pre-norm blocks with RMSNorm, rotary position embeddings, SwiGLU, hand-written causal attention, tied embeddings, KV cache for generation — 34M parameters with the 16k vocabulary |
 | `model/data.py`, `train_pretrain.py`, `sample.py` | texts → token stream on disk → training loop (AdamW, warmup + cosine, bf16, gradient accumulation, resumable checkpoints) → sampling |
+| `datagen/corpus.py` | pretraining corpus: Wikipedia EN/RU articles on statistics, econometrics, causal inference and ML (plus everyday domains), Facure's handbook, our method cards and explanations; resumable polite fetching, cleaning, deduplication, document-level train/val split |
 | `data/demo/` | 12 demo datasets with questions, including the real Prop 99 data |
 
 ## Results
@@ -78,18 +80,18 @@ Baseline on the held-out test set (4,970 questions, split by scenario; `eval/res
 The baseline's weak spots are synonyms (*salary* ↔ `annual_pay`) and unfamiliar phrasing —
 exactly what the language model is meant to fix.
 
-Tokenizer (`models/tokenizer.json`, trained on the 90k training examples in ~30 s):
+Tokenizer (`models/tokenizer.json`). The first version learned only the task's templates; retrained on the open
+corpus plus the task data (~100M characters, 63 s), it reads ordinary text far more efficiently:
 
-| Metric | Value |
-|---|---|
-| Characters per token on held-out examples, EN / RU | 4.9 / 5.4 |
-| Characters per token on free text it never saw (this README / PLAN.md in Russian) | 2.2 / 2.0 |
-| Full training example length, median / p95 / max | 391 / 582 / 827 tokens — fits a 1,024-token context |
+| Characters per token | Stage 5: 8k, task data only | Now: 16k, corpus + task data |
+|---|---|---|
+| Held-out task examples, EN / RU | 4.9 / 5.4 | 4.9 / 5.2 |
+| Held-out Wikipedia articles, EN / RU | 2.6 / 2.1 | 4.2 / 3.6 |
+| This README / PLAN.md (Russian) | 2.2 / 2.0 | 2.9 / 2.7 |
 
-The gap between the two rows is expected: the vocabulary has learned the task's templates. It will be retrained
-on the pretraining corpus together with the task data before the model is trained.
+A full training example is 396 tokens at the median and 829 at most, so it still fits the 1,024-token context.
 
-Language model (`model/transformer.py`, 29.9M parameters). It memorizes a single batch — loss 9.0 → 0.0002
+Language model, first check (`model/transformer.py`, 29.9M parameters with the stage 5 vocabulary). It memorizes a single batch — loss 9.0 → 0.0002
 in 300 steps — and after 12 minutes of training on the task texts (1.1 epochs of 35M tokens, 55k tokens/s
 on an RTX 3060 Ti in bf16, validation loss 0.42) it writes complete answers in the task format.
 Greedy decoding on the same 4,970 test questions (`runs/` is not in git; reproduce with `python -m model.sample checkpoints/sft_lm.pt --n 5000`):
@@ -105,6 +107,32 @@ This is a sanity check, not the finished advisor. The loss covers the whole sequ
 there is no constrained decoding yet, and the test questions come from the same generator. Free sampling shows
 why constrained decoding is planned: the model writes a question about an `instrument` column that its own data card
 does not have. Questions written by people are the real test.
+
+Pretraining (`model/train_pretrain.py`; checkpoints are not in git). The 34M-parameter model trained for 54 minutes
+on the open corpus: 4,000 steps of 32,768 tokens (131M tokens, 5.6 epochs of 23M), 44.7k tokens/s, learning rate 1e-3
+with cosine decay to 1e-4, dropout 0.1. Validation loss levels off at 2.84 as the learning rate reaches its floor
+(the first 200 steps, which start at ln 16,384 ≈ 9.7, are not shown):
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/pretrain_loss_dark.png">
+  <img src="docs/img/pretrain_loss.png" alt="Train and validation loss of the 34M-parameter model over 4,000 steps; validation flattens at 2.84">
+</picture>
+
+| Held-out text | Loss | Perplexity |
+|---|---|---|
+| English Wikipedia (175 articles) | 3.25 | 25.8 |
+| Russian Wikipedia (42 articles) | 3.37 | 28.9 |
+| Our explanations | 0.41 | 1.5 |
+
+The model writes fluent, Wikipedia-shaped English with little meaning behind it — the first sample for a neutral prompt:
+
+> **In statistics, the median is** the median with the lowest mean. It can be shown that the median is the mean of the
+> tails of the tails, but it is easy to use.
+
+Russian, with six times less text, is weaker and slips into repetition, and domain terms often pull the model into the
+style of our explanations, which it has learned best. That is about what 34M parameters and 23M tokens can give; the
+question for the next stage is whether this language prior helps on questions written by people, so fine-tuning
+will be compared with and without it.
 
 ## Quick start
 
@@ -133,7 +161,14 @@ Other entry points:
 ```bash
 .venv/Scripts/python.exe scripts/demo_stage1.py data/demo/smoking.csv --treatment california --outcome cigsale
 .venv/Scripts/python.exe -m eval.run_eval --backend baseline
-.venv/Scripts/python.exe -m model.train_tokenizer --vocab-size 8192
+.venv/Scripts/python.exe -m datagen.corpus titles --lang en      # then --lang ru
+.venv/Scripts/python.exe -m datagen.corpus wiki --lang en        # ~50 min; then --lang ru
+.venv/Scripts/python.exe -m datagen.corpus facure
+.venv/Scripts/python.exe -m datagen.corpus own
+.venv/Scripts/python.exe -m model.train_tokenizer --vocab-size 16384 --corpus
+.venv/Scripts/python.exe -m model.data corpus --splits train val
+.venv/Scripts/python.exe -m model.train_pretrain --steps 4000 --warmup 200 --lr 1e-3 --min-lr 1e-4 --dropout 0.1 --run pretrain
+.venv/Scripts/python.exe -m model.sample checkpoints/pretrain_best.pt --loss data/tokens/pretrain_val_wiki_en.bin data/tokens/pretrain_val_wiki_ru.bin data/tokens/pretrain_val_own.bin
 .venv/Scripts/python.exe -m model.data sft --splits train val
 .venv/Scripts/python.exe -m model.train_pretrain --train data/tokens/sft_train.bin --overfit --steps 300 --batch 8 --accum 1 --lr 1e-3 --min-lr 1e-3 --weight-decay 0 --run overfit
 .venv/Scripts/python.exe -m model.train_pretrain --train data/tokens/sft_train.bin --val data/tokens/sft_val.bin --steps 1200 --run sft_lm
@@ -149,7 +184,7 @@ Other entry points:
 - [x] Classical-ML baseline, end-to-end pipeline, web UI
 - [x] Byte-level BPE tokenizer from scratch
 - [x] GPT-style decoder from scratch (~30M parameters: attention, RoPE, RMSNorm written by hand)
-- [ ] Pretraining on an open corpus
+- [x] Pretraining on an open corpus (Wikipedia EN/RU, Facure's handbook, 23M tokens)
 - [ ] Fine-tuning on the task, constrained decoding, two-pass inference — must beat the baseline
 - [ ] Calibrated confidence, "options" mode and honest refusals
 - [ ] Evaluation against the baselines, demo scenarios
