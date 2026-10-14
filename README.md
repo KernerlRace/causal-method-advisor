@@ -15,8 +15,8 @@ The goal is a small language model written and trained from scratch (no pretrain
 that understands the question and explains the choice, while deterministic code does the statistics.
 The model is the next stage; today the pipeline runs end to end on a classical-ML baseline.
 
-> **Status:** the non-neural half is done — knowledge base, diagnostics, synthetic data, baseline and web UI.
-> Next: the from-scratch model (BPE tokenizer, GPT-style decoder, pretraining and fine-tuning).
+> **Status:** the non-neural half is done — knowledge base, diagnostics, synthetic data, baseline and web UI —
+> and the model's own byte-level BPE tokenizer is trained. Next: the GPT-style decoder, pretraining and fine-tuning.
 
 <img src="docs/img/question.png" alt="Asking about California's Proposition 99 on the demo dataset">
 
@@ -58,6 +58,7 @@ mistakes in causal reasoning, so the model only reads the question and explains.
 | `advisor/baseline.py` | baseline backend: TF-IDF + logistic regression for question parsing, gradient boosting over (question × column) pairs, one model per method for ranking |
 | `advisor/pipeline.py` | end-to-end `advise(df, question, backend)` |
 | `app.py` | Streamlit UI: upload a CSV or pick a demo → ask → review the parsed roles → get advice, assumption checks and method cards |
+| `model/tokenizer.py` | byte-level BPE written from scratch: 8,192 tokens, 37 of them special (markup, question types, answer modes, one token per method); any string round-trips losslessly, and user text cannot smuggle in special tokens |
 | `data/demo/` | 12 demo datasets with questions, including the real Prop 99 data |
 
 ## Results
@@ -73,6 +74,17 @@ Baseline on the held-out test set (4,970 questions, split by scenario; `eval/res
 
 The baseline's weak spots are synonyms (*salary* ↔ `annual_pay`) and unfamiliar phrasing —
 exactly what the language model is meant to fix.
+
+Tokenizer (`models/tokenizer.json`, trained on the 90k training examples in ~30 s):
+
+| Metric | Value |
+|---|---|
+| Characters per token on held-out examples, EN / RU | 4.9 / 5.4 |
+| Characters per token on free text it never saw (this README / PLAN.md in Russian) | 2.2 / 2.0 |
+| Full training example length, median / p95 / max | 391 / 582 / 827 tokens — fits a 1,024-token context |
+
+The gap between the two rows is expected: the vocabulary has learned the task's templates. It will be retrained
+on the pretraining corpus together with the task data before the model is trained.
 
 ## Quick start
 
@@ -101,6 +113,7 @@ Other entry points:
 ```bash
 .venv/Scripts/python.exe scripts/demo_stage1.py data/demo/smoking.csv --treatment california --outcome cigsale
 .venv/Scripts/python.exe -m eval.run_eval --backend baseline
+.venv/Scripts/python.exe -m model.train_tokenizer --vocab-size 8192
 .venv/Scripts/python.exe -m pytest -q tests
 ```
 
@@ -110,7 +123,7 @@ Other entry points:
 - [x] Scenario generators with known ground truth, reference estimators
 - [x] Question and explanation generators, train/val/test sets
 - [x] Classical-ML baseline, end-to-end pipeline, web UI
-- [ ] Byte-level BPE tokenizer from scratch
+- [x] Byte-level BPE tokenizer from scratch
 - [ ] GPT-style decoder from scratch (~30M parameters: attention, RoPE, RMSNorm written by hand)
 - [ ] Pretraining on an open corpus
 - [ ] Fine-tuning on the task, constrained decoding, two-pass inference — must beat the baseline

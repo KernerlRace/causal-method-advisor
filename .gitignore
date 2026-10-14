@@ -21,6 +21,7 @@ Thumbs.db
 data/scenarios/
 models/*
 !models/baseline.joblib
+!models/tokenizer.json
 
 # личное: материалы для преподавателя, логи сборки, настройки Claude Code
 .claude/
