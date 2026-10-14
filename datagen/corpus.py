@@ -191,9 +191,12 @@ def corpus_docs(split: str | None = None, files: tuple[str, ...] = CORPUS_FILES)
 
 
 def read_jsonl(path: Path) -> Iterator[dict]:
+    """Строка без перевода строки в конце — недописанная (выгрузка ещё идёт или её прервали): пропускаем."""
     if path.exists():
         with path.open(encoding="utf-8") as f:
             for line in f:
+                if not line.endswith("\n"):
+                    return
                 yield json.loads(line)
 
 

@@ -5,6 +5,8 @@
   # грубая проверка на n примерах: совпадает ли разбор вопроса и первый метод с эталоном
   .venv/Scripts/python.exe -m model.sample checkpoints/stage6_sft_lm.pt --n 200
   .venv/Scripts/python.exe -m model.sample checkpoints/stage6_sft_lm.pt --prompt "<CARD>rows=500"
+  # loss на отдельных потоках токенов, например на валидации корпуса по источникам
+  .venv/Scripts/python.exe -m model.sample checkpoints/pretrain.pt --loss data/tokens/pretrain_val_*.bin
 
 Это ещё не советник: формат и loss только на ответе — этап 8, constrained decoding и вероятности
 методов из softmax — тоже. Здесь проверяем, что модель вообще научилась писать текст задачи.
@@ -13,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import math
 import re
 import time
 from pathlib import Path
@@ -98,6 +101,7 @@ def main() -> None:
     ap.add_argument("--cut", default="<ANS>", help="до какого маркера пример идёт в промпт")
     ap.add_argument("--n", type=int, default=0, help="проверить на n примерах из --split (больше размера — весь split)")
     ap.add_argument("--split", default="test")
+    ap.add_argument("--loss", nargs="+", type=Path, help="посчитать loss на этих потоках токенов (.bin)")
     ap.add_argument("--max-new", type=int, default=600)
     ap.add_argument("--temperature", type=float, default=0.0)
     ap.add_argument("--top-k", type=int, default=None)
@@ -108,6 +112,16 @@ def main() -> None:
     sampler = Sampler(args.ckpt, device)
     if args.n:
         evaluate(sampler, args.n, args.split)
+        return
+    if args.loss:
+        from model.data import TokenStream
+        from model.train_pretrain import autocast_for
+        from model.train_pretrain import evaluate as stream_loss
+
+        amp, _ = autocast_for(device)
+        for path in args.loss:
+            loss = stream_loss(sampler.model, TokenStream(path), 20, 8, device, amp)
+            print(f"{path.name:32s} loss {loss:.3f}  perplexity {math.exp(loss):.1f}")
         return
 
     gold = None
