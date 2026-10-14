@@ -119,6 +119,7 @@ def main() -> None:
         from model.train_pretrain import evaluate as stream_loss
 
         amp, _ = autocast_for(device)
+        sampler.model.cfg.attention = "sdpa"  # на окнах 1024 ручное внимание держит матрицы T×T — вдвое больше памяти
         for path in args.loss:
             loss = stream_loss(sampler.model, TokenStream(path), 20, 8, device, amp)
             print(f"{path.name:32s} loss {loss:.3f}  perplexity {math.exp(loss):.1f}")
