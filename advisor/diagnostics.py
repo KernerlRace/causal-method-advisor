@@ -8,17 +8,18 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass, field
 
+import cvxpy as cp
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from scipy import stats
-from scipy.optimize import minimize
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import cross_val_predict
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
+from advisor.estimators import _solve
 from advisor.profiler import DataCard, TreatmentDesign, to_bool
 from advisor.query import CausalQuery
 
@@ -170,12 +171,11 @@ def sc_pre_fit(df: pd.DataFrame, card: DataCard, query: CausalQuery,
     y = wide.loc[pre, tr].mean(axis=1)
     Y = wide.loc[pre, co].dropna(axis=1)
     y = y.loc[Y.index]
-    n = Y.shape[1]
-    res = minimize(lambda w: np.sum((y.values - Y.values @ w) ** 2), np.full(n, 1 / n),
-                   jac=lambda w: -2 * Y.values.T @ (y.values - Y.values @ w),
-                   bounds=[(0, 1)] * n, constraints=[{"type": "eq", "fun": lambda w: w.sum() - 1}],
-                   method="SLSQP", options={"maxiter": 500})
-    w = res.x
+    # Выпуклая QP решается через cvxpy: SLSQP на Linux-CI останавливался до оптимума
+    # и давал ложный sc_poor_fit на Prop 99 (R² ниже 0.75 вместо 0.98)
+    v = cp.Variable(Y.shape[1])
+    w = np.clip(_solve(cp.Problem(cp.Minimize(cp.sum_squares(Y.values @ v - y.values)),
+                                  [cp.sum(v) == 1, v >= 0]), v), 0, None)
     fitted = Y.values @ w
     ss_res = float(np.sum((y.values - fitted) ** 2))
     ss_tot = float(np.sum((y.values - y.values.mean()) ** 2))
