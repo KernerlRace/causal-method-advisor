@@ -1,5 +1,9 @@
 # Causal Method Advisor
 
+[![tests](https://github.com/KernerlRace/causal-method-advisor/actions/workflows/tests.yml/badge.svg)](https://github.com/KernerlRace/causal-method-advisor/actions/workflows/tests.yml)
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 Give it a CSV and a question in plain language — *"Did the campaign raise sales?"*,
 *"What drives churn?"* — and it recommends which causal inference method to use, and why.
 If the question is ambiguous or the data cannot answer it, it says so and offers alternatives.
@@ -10,6 +14,13 @@ The model is the next stage; today the pipeline runs end to end on a classical-M
 
 > **Status:** the non-neural half is done — knowledge base, diagnostics, synthetic data, baseline and web UI.
 > Next: the from-scratch model (BPE tokenizer, GPT-style decoder, pretraining and fine-tuning).
+
+<img src="docs/img/question.png" alt="Asking about California's Proposition 99 on the demo dataset">
+
+On the real Prop 99 data the advisor sees one treated state, 38 controls and pre-treatment trends that are
+not parallel (p ≈ 1e-6), so it steers away from plain difference-in-differences:
+
+<img src="docs/img/advice.png" alt="Advice: synthetic DiD or synthetic control, with the assumption checks behind it">
 
 ## How it works
 

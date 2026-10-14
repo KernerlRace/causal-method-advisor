@@ -19,7 +19,8 @@ runs/
 .idea/
 Thumbs.db
 data/scenarios/
-models/
+models/*
+!models/baseline.joblib
 
 # личное: материалы для преподавателя, логи сборки, настройки Claude Code
 .claude/
