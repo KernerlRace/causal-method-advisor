@@ -9,7 +9,8 @@
 
 На Ampere (3060 Ti) — bf16 autocast, где bf16 нет — fp16 с GradScaler. AdamW, warmup + cosine,
 gradient accumulation, клиппинг градиента. Лог — runs/<run>.csv, чекпойнт с оптимизатором —
-checkpoints/<run>.pt (сохраняется при каждой оценке, --resume продолжает с него).
+checkpoints/<run>.pt (сохраняется при каждой оценке, --resume продолжает с него), лучший по val —
+checkpoints/<run>_best.pt: на нескольких эпохах конец обучения может уже переобучаться.
 """
 from __future__ import annotations
 
@@ -127,6 +128,7 @@ def main() -> None:
     if new_log:
         log.writerow(["step", "lr", "train_loss", "val_loss", "grad_norm", "tokens_per_s", "elapsed_s"])
 
+    best_val = extra.get("best_val", float("inf"))
     t_start = t_last = time.time()
     loss_sum, n_since = torch.zeros((), device=device), 0
     for step in range(start_step, args.steps):
@@ -164,8 +166,11 @@ def main() -> None:
             loss_sum.zero_()
             n_since, t_last = 0, time.time()
         if do_eval or (last and not args.overfit):
-            model.save(ckpt_path, step=step + 1, optimizer=opt.state_dict(), args=vars(args) | {
-                "train": str(args.train), "val": str(args.val)})
+            if val_loss is not None and val_loss < best_val:
+                best_val = val_loss
+                model.save(ckpt_path.with_name(f"{args.run}_best.pt"), step=step + 1, val_loss=val_loss)
+            model.save(ckpt_path, step=step + 1, optimizer=opt.state_dict(), best_val=best_val,
+                       args=vars(args) | {"train": str(args.train), "val": str(args.val)})
     log_file.close()
     if device.type == "cuda":
         print(f"peak GPU memory {torch.cuda.max_memory_allocated() / 2**30:.2f} GB")
