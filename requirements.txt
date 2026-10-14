@@ -1,17 +1,19 @@
 # PyTorch ставится отдельно, под CUDA (см. README):
 #   uv pip install --python .venv/Scripts/python.exe torch --index-url https://download.pytorch.org/whl/cu126
 
-# данные и диагностики
-numpy
-pandas
-scipy
-statsmodels
-scikit-learn
-cvxpy
+# данные и диагностики (версии закреплены: бейзлайн в models/ сохранён joblib-ом,
+# другой scikit-learn или numpy его не прочитает — это важно для демо в облаке)
+numpy==2.5.4
+pandas==3.0.6
+scipy==1.18.1
+statsmodels==0.15.0
+scikit-learn==1.9.1
+joblib==1.6.0
+cvxpy==1.9.3
 
 # база знаний, UI, утилиты
 pyyaml
-streamlit
+streamlit==1.65.0
 matplotlib
 tqdm
 
