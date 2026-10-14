@@ -70,18 +70,25 @@ class Wiki:
         self.session.headers["User-Agent"] = USER_AGENT
 
     def get(self, **params) -> dict:
+        """Запрос с повторами: при 429/503 ждём столько, сколько просит сервер (Retry-After)."""
         params |= {"format": "json", "formatversion": 2, "maxlag": 5}
-        for attempt in range(6):
+        problem = ""
+        for attempt in range(8):
+            wait = min(2 ** attempt, 60)
             try:
                 r = self.session.get(self.url, params=params, timeout=30)
                 if r.status_code == 200:
                     data = r.json()
                     if data.get("error", {}).get("code") != "maxlag":
                         return data
-            except (requests.RequestException, ValueError):
-                pass
-            time.sleep(2 ** attempt)
-        raise RuntimeError(f"{self.lang}.wikipedia.org не отвечает: {params}")
+                    problem = "maxlag"
+                else:
+                    problem = f"HTTP {r.status_code}"
+                    wait = max(wait, int(r.headers.get("Retry-After", "0") or 0))
+            except (requests.RequestException, ValueError) as e:
+                problem = type(e).__name__
+            time.sleep(wait)
+        raise RuntimeError(f"{self.lang}.wikipedia.org: {problem} — {params.get('titles') or params.get('cmtitle')}")
 
     def members(self, category: str) -> Iterator[dict]:
         prefix = "Category:" if self.lang == "en" else "Категория:"
@@ -99,6 +106,13 @@ class Wiki:
                         redirects=1, titles=title)
         pages = data.get("query", {}).get("pages", [])
         return pages[0].get("extract") if pages and not pages[0].get("missing") else None
+
+    def try_extract(self, title: str) -> str | None | Exception:
+        """Ошибка сети не роняет всю выгрузку: статья останется недокачанной до следующего запуска."""
+        try:
+            return self.extract(title)
+        except RuntimeError as e:
+            return e
 
 
 def crawl(lang: str) -> list[str]:
@@ -196,7 +210,12 @@ def fetch_wiki(lang: str, workers: int, min_chars: int = 500) -> None:
     t0, n_ok = time.time(), 0
     with out.open("a", encoding="utf-8") as f, skipped_path.open("a", encoding="utf-8") as skipped, \
             ThreadPoolExecutor(workers) as pool:
-        for i, (title, raw) in enumerate(zip(todo, pool.map(wiki.extract, todo)), 1):
+        failed = 0
+        for i, (title, raw) in enumerate(zip(todo, pool.map(wiki.try_extract, todo)), 1):
+            if isinstance(raw, Exception):
+                failed += 1
+                print(f"  skip for now: {raw}", flush=True)
+                continue
             text = clean_wiki(raw) if raw else ""
             if len(text) >= min_chars:
                 f.write(json.dumps({"source": "wikipedia", "lang": lang, "title": title, "text": text},
@@ -207,7 +226,8 @@ def fetch_wiki(lang: str, workers: int, min_chars: int = 500) -> None:
             if i % 500 == 0:
                 f.flush()
                 print(f"  {i}/{len(todo)} fetched, {n_ok} kept, {i / (time.time() - t0):.1f}/s", flush=True)
-    print(f"{lang}: kept {n_ok} of {len(todo)} in {(time.time() - t0) / 60:.1f} min", flush=True)
+    print(f"{lang}: kept {n_ok} of {len(todo)}, {failed} failed (rerun to retry) in "
+          f"{(time.time() - t0) / 60:.1f} min", flush=True)
 
 
 FACURE_REPO = "matheusfacure/python-causality-handbook"
@@ -292,7 +312,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=["titles", "wiki", "facure", "own", "stats"])
     ap.add_argument("--lang", choices=["en", "ru"], default="en")
-    ap.add_argument("--workers", type=int, default=3)
+    ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--max-sft", type=int, default=20000, help="сколько train-примеров SFT взять в корпус")
     args = ap.parse_args()
     CORPUS.mkdir(parents=True, exist_ok=True)
