@@ -1,9 +1,11 @@
 """Обучение языковой модели на потоке токенов: претрейн (этап 7) и проверочные прогоны этапа 6.
 
+  # претрейн на открытом корпусе (python -m model.data corpus)
+  .venv/Scripts/python.exe -m model.train_pretrain --steps 6000 --run pretrain
   # модель переобучается на одном батче: loss → ~0
   .venv/Scripts/python.exe -m model.train_pretrain --overfit --steps 300 --run stage6_overfit
   # короткое обучение на текстах SFT: модель начинает писать текст в формате задачи
-  .venv/Scripts/python.exe -m model.train_pretrain --steps 1500 --run stage6_sft_lm
+  .venv/Scripts/python.exe -m model.train_pretrain --train data/tokens/sft_train.bin --val data/tokens/sft_val.bin --steps 1200 --run stage6_sft_lm
 
 На Ampere (3060 Ti) — bf16 autocast, где bf16 нет — fp16 с GradScaler. AdamW, warmup + cosine,
 gradient accumulation, клиппинг градиента. Лог — runs/<run>.csv, чекпойнт с оптимизатором —
@@ -60,8 +62,8 @@ def evaluate(model: GPT, stream: TokenStream, n_batches: int, batch_size: int, d
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--train", type=Path, default=TOKENS_DIR / "sft_train.bin")
-    ap.add_argument("--val", type=Path, default=TOKENS_DIR / "sft_val.bin")
+    ap.add_argument("--train", type=Path, default=TOKENS_DIR / "pretrain_train.bin")
+    ap.add_argument("--val", type=Path, default=TOKENS_DIR / "pretrain_val.bin")
     ap.add_argument("--run", default="pretrain", help="имя прогона: runs/<run>.csv, checkpoints/<run>.pt")
     ap.add_argument("--preset", choices=sorted(PRESETS), default="base")
     ap.add_argument("--context", type=int, default=None, help="по умолчанию — из пресета")

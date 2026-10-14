@@ -1,6 +1,7 @@
 """Токены на диске: тексты → один поток uint16 с <EOS> после каждого документа → случайные окна.
 
-  .venv/Scripts/python.exe -m model.data sft --splits train val
+  .venv/Scripts/python.exe -m model.data sft --splits train val      # примеры задачи целиком
+  .venv/Scripts/python.exe -m model.data corpus --splits train val   # открытый корпус для претрейна
 
 Словарь 8192 < 65536, поэтому uint16: 36M токенов SFT занимают ~70 МБ. Поток читается через memmap,
 так что корпус претрейна не обязан влезать в память.
@@ -23,8 +24,9 @@ TOKENS_DIR = ROOT / "data" / "tokens"
 TOKENIZER = ROOT / "models" / "tokenizer.json"
 
 
-def write_tokens(texts: Iterable[str], out: Path, tokenizer: Path = TOKENIZER) -> int:
-    """Кодирует тексты (спецтокены разметки распознаются) и дописывает <EOS> после каждого."""
+def write_tokens(texts: Iterable[str], out: Path, tokenizer: Path = TOKENIZER, allow_special: bool = True) -> int:
+    """Кодирует тексты и дописывает <EOS> после каждого. allow_special=False — для чужого текста:
+    «<EOS>» в статье останется обычными байтами."""
     tok = BPETokenizer.load(tokenizer)
     if tok.vocab_size > 65536:
         raise ValueError("словарь не влезает в uint16")
@@ -35,7 +37,7 @@ def write_tokens(texts: Iterable[str], out: Path, tokenizer: Path = TOKENIZER) -
         for batch in _batched(texts, 1024):
             ids: list[int] = []
             for text in batch:
-                ids.extend(tok.encode(text))
+                ids.extend(tok.encode(text, allow_special=allow_special))
                 ids.append(eos)
             f.write(np.asarray(ids, dtype=np.uint16).tobytes())
             n += len(ids)
@@ -81,18 +83,37 @@ def sft_texts(split: str, limit: int | None = None) -> Iterator[str]:
         yield sequence(rec).removesuffix("<EOS>")
 
 
+def corpus_texts(split: str, limit: int | None = None, files: tuple[str, ...] | None = None) -> Iterator[str]:
+    from datagen.corpus import CORPUS_FILES, corpus_docs
+
+    for i, doc in enumerate(corpus_docs(split, files or CORPUS_FILES)):
+        if limit is not None and i >= limit:
+            return
+        yield doc["text"]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("source", choices=["sft"])
+    ap.add_argument("source", choices=["sft", "corpus"])
     ap.add_argument("--splits", nargs="+", default=["train", "val"])
     ap.add_argument("--limit", type=int, default=None)
     args = ap.parse_args()
 
     for split in args.splits:
         t0 = time.time()
-        out = TOKENS_DIR / f"{args.source}_{split}.bin"
-        n = write_tokens(sft_texts(split, args.limit), out)
+        prefix = "pretrain" if args.source == "corpus" else "sft"
+        out = TOKENS_DIR / f"{prefix}_{split}.bin"
+        if args.source == "sft":
+            n = write_tokens(sft_texts(split, args.limit), out)
+        else:
+            n = write_tokens(corpus_texts(split, args.limit), out, allow_special=False)
         print(f"{out.relative_to(ROOT)}: {n:,} tokens in {time.time() - t0:.0f}s")
+        if args.source == "corpus" and split == "val":
+            # отдельно по источникам: шаблонные объяснения учатся намного легче статей
+            for name in ("wiki_en", "wiki_ru", "own"):
+                part = TOKENS_DIR / f"pretrain_val_{name}.bin"
+                n = write_tokens(corpus_texts("val", files=(f"{name}.jsonl",)), part, allow_special=False)
+                print(f"  {part.relative_to(ROOT)}: {n:,} tokens")
 
 
 if __name__ == "__main__":
