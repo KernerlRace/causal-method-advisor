@@ -20,3 +20,9 @@ runs/
 Thumbs.db
 data/scenarios/
 models/
+
+# личное: материалы для преподавателя, логи сборки, настройки Claude Code
+.claude/
+Questions_for_teacher.pdf
+docs/questions_for_teacher*.md
+data/*.log
