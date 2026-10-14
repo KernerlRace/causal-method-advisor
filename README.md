@@ -13,10 +13,11 @@ If the question is ambiguous or the data cannot answer it, it says so and offers
 
 The goal is a small language model written and trained from scratch (no pretrained weights, no Hugging Face)
 that understands the question and explains the choice, while deterministic code does the statistics.
-The model is the next stage; today the pipeline runs end to end on a classical-ML baseline.
+The model exists and trains; the web demo still runs on a classical-ML baseline until the model is wired in.
 
-> **Status:** the non-neural half is done — knowledge base, diagnostics, synthetic data, baseline and web UI —
-> and the model's own byte-level BPE tokenizer is trained. Next: the GPT-style decoder, pretraining and fine-tuning.
+> **Status:** the non-neural half is done — knowledge base, diagnostics, synthetic data, baseline and web UI.
+> The model's own BPE tokenizer and the 30M-parameter GPT-style decoder are written from scratch, and a first
+> 12-minute training run already beats the baseline on held-out questions. Next: pretraining and proper fine-tuning.
 
 <img src="docs/img/question.png" alt="Asking about California's Proposition 99 on the demo dataset">
 
@@ -59,6 +60,8 @@ mistakes in causal reasoning, so the model only reads the question and explains.
 | `advisor/pipeline.py` | end-to-end `advise(df, question, backend)` |
 | `app.py` | Streamlit UI: upload a CSV or pick a demo → ask → review the parsed roles → get advice, assumption checks and method cards |
 | `model/tokenizer.py` | byte-level BPE written from scratch: 8,192 tokens, 37 of them special (markup, question types, answer modes, one token per method); any string round-trips losslessly, and user text cannot smuggle in special tokens |
+| `model/transformer.py` | GPT-style decoder written from scratch: pre-norm blocks with RMSNorm, rotary position embeddings, SwiGLU, hand-written causal attention, tied embeddings, KV cache for generation — 29.9M parameters |
+| `model/data.py`, `train_pretrain.py`, `sample.py` | texts → token stream on disk → training loop (AdamW, warmup + cosine, bf16, gradient accumulation, resumable checkpoints) → sampling |
 | `data/demo/` | 12 demo datasets with questions, including the real Prop 99 data |
 
 ## Results
@@ -85,6 +88,23 @@ Tokenizer (`models/tokenizer.json`, trained on the 90k training examples in ~30 
 
 The gap between the two rows is expected: the vocabulary has learned the task's templates. It will be retrained
 on the pretraining corpus together with the task data before the model is trained.
+
+Language model (`model/transformer.py`, 29.9M parameters). It memorizes a single batch — loss 9.0 → 0.0002
+in 300 steps — and after 12 minutes of training on the task texts (1.1 epochs of 35M tokens, 55k tokens/s
+on an RTX 3060 Ti in bf16, validation loss 0.42) it writes complete answers in the task format.
+Greedy decoding on the same 4,970 test questions (`runs/` is not in git; reproduce with `python -m model.sample checkpoints/sft_lm.pt --n 5000`):
+
+| Metric | Model, 12 min of training | Baseline |
+|---|---|---|
+| Question type / on unseen templates | 99.3% / 92.0% | 98.2% / 78.9% |
+| Treatment and outcome found correctly | 97.2% | 85.4% |
+| Whole parse exactly right | 93.7% | 81.6% |
+| Best method, given the true parse and diagnostics (top-1) | 99.8% | 99.9% |
+
+This is a sanity check, not the finished advisor. The loss covers the whole sequence rather than only the answer,
+there is no constrained decoding yet, and the test questions come from the same generator. Free sampling shows
+why constrained decoding is planned: the model writes a question about an `instrument` column that its own data card
+does not have. Questions written by people are the real test.
 
 ## Quick start
 
@@ -114,6 +134,10 @@ Other entry points:
 .venv/Scripts/python.exe scripts/demo_stage1.py data/demo/smoking.csv --treatment california --outcome cigsale
 .venv/Scripts/python.exe -m eval.run_eval --backend baseline
 .venv/Scripts/python.exe -m model.train_tokenizer --vocab-size 8192
+.venv/Scripts/python.exe -m model.data sft --splits train val
+.venv/Scripts/python.exe -m model.train_pretrain --overfit --steps 300 --batch 8 --accum 1 --lr 1e-3 --min-lr 1e-3 --weight-decay 0 --run overfit
+.venv/Scripts/python.exe -m model.train_pretrain --steps 1200 --run sft_lm
+.venv/Scripts/python.exe -m model.sample checkpoints/sft_lm.pt --sft test:0
 .venv/Scripts/python.exe -m pytest -q tests
 ```
 
@@ -124,7 +148,7 @@ Other entry points:
 - [x] Question and explanation generators, train/val/test sets
 - [x] Classical-ML baseline, end-to-end pipeline, web UI
 - [x] Byte-level BPE tokenizer from scratch
-- [ ] GPT-style decoder from scratch (~30M parameters: attention, RoPE, RMSNorm written by hand)
+- [x] GPT-style decoder from scratch (~30M parameters: attention, RoPE, RMSNorm written by hand)
 - [ ] Pretraining on an open corpus
 - [ ] Fine-tuning on the task, constrained decoding, two-pass inference — must beat the baseline
 - [ ] Calibrated confidence, "options" mode and honest refusals
