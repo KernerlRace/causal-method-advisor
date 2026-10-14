@@ -3,7 +3,7 @@
   .venv/Scripts/python.exe -m model.data sft --splits train val      # примеры задачи целиком
   .venv/Scripts/python.exe -m model.data corpus --splits train val   # открытый корпус для претрейна
 
-Словарь 8192 < 65536, поэтому uint16: 36M токенов SFT занимают ~70 МБ. Поток читается через memmap,
+Словарь 16384 < 65536, поэтому uint16: 25M токенов корпуса занимают ~50 МБ. Поток читается через memmap,
 так что корпус претрейна не обязан влезать в память.
 """
 from __future__ import annotations

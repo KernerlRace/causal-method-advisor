@@ -18,7 +18,7 @@ from torch import nn
 
 @dataclass
 class GPTConfig:
-    vocab_size: int = 8192
+    vocab_size: int = 16384
     context: int = 1024
     n_layer: int = 8
     n_head: int = 8
@@ -43,8 +43,8 @@ class GPTConfig:
 
 PRESETS = {
     "tiny": dict(n_layer=2, n_head=2, d_model=64, context=128),   # для тестов
-    "small": dict(n_layer=6, n_head=6, d_model=384),              # ~14M — запасной вариант, если корпуса мало
-    "base": dict(n_layer=8, n_head=8, d_model=512),               # ~30M — основной
+    "small": dict(n_layer=6, n_head=6, d_model=384),              # ~17M — запасной вариант, если корпуса мало
+    "base": dict(n_layer=8, n_head=8, d_model=512),               # ~34M при словаре 16k — основной
 }
 
 
