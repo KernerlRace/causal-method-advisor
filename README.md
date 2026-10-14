@@ -135,8 +135,8 @@ Other entry points:
 .venv/Scripts/python.exe -m eval.run_eval --backend baseline
 .venv/Scripts/python.exe -m model.train_tokenizer --vocab-size 8192
 .venv/Scripts/python.exe -m model.data sft --splits train val
-.venv/Scripts/python.exe -m model.train_pretrain --overfit --steps 300 --batch 8 --accum 1 --lr 1e-3 --min-lr 1e-3 --weight-decay 0 --run overfit
-.venv/Scripts/python.exe -m model.train_pretrain --steps 1200 --run sft_lm
+.venv/Scripts/python.exe -m model.train_pretrain --train data/tokens/sft_train.bin --overfit --steps 300 --batch 8 --accum 1 --lr 1e-3 --min-lr 1e-3 --weight-decay 0 --run overfit
+.venv/Scripts/python.exe -m model.train_pretrain --train data/tokens/sft_train.bin --val data/tokens/sft_val.bin --steps 1200 --run sft_lm
 .venv/Scripts/python.exe -m model.sample checkpoints/sft_lm.pt --sft test:0
 .venv/Scripts/python.exe -m pytest -q tests
 ```
@@ -158,5 +158,16 @@ The detailed design document (in Russian) is in [PLAN.md](PLAN.md).
 
 ## References
 
-- Aleksander Molak, *Causal Inference and Discovery in Python*
+- Aleksander Molak, *Causal Inference and Discovery in Python* — used only as a source of knowledge for the method cards,
+  never as training text
 - Matheus Facure, *Causal Inference for the Brave and True*
+
+## Pretraining data
+
+The pretraining corpus is rebuilt locally by `datagen/corpus.py` and is not stored in this repository:
+
+| Source | Licence | What is used |
+|---|---|---|
+| [Wikipedia](https://www.wikipedia.org/), English and Russian | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) | plain-text articles from statistics, econometrics, causal inference and machine learning categories, plus marketing, health, labour, education and retail articles for everyday vocabulary |
+| [Causal Inference for the Brave and True](https://github.com/matheusfacure/python-causality-handbook) by Matheus Facure | MIT | prose of the book's chapters (no code) |
+| This project | MIT | method cards and generated explanations from the training split |
