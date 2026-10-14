@@ -53,6 +53,31 @@ def test_split_is_by_document_and_deterministic():
     assert 0.01 < share < 0.03
 
 
+def test_duplicate_articles_are_read_once(tmp_path, monkeypatch):
+    import json
+
+    import datagen.corpus as corpus
+
+    docs = [{"source": "wikipedia", "lang": "en", "title": t, "text": text}
+            for t, text in [("Statistics", "same text"), ("Business statistics", "same text"), ("Mean", "other")]]
+    (tmp_path / "w.jsonl").write_text("".join(json.dumps(d) + "\n" for d in docs), encoding="utf-8")
+    monkeypatch.setattr(corpus, "CORPUS", tmp_path)
+    got = list(corpus.corpus_docs(files=("w.jsonl",)))
+    assert [d["title"] for d in got] == ["Statistics", "Mean"]
+    halves = list(corpus.corpus_docs("train", ("w.jsonl",))) + list(corpus.corpus_docs("val", ("w.jsonl",)))
+    assert sorted(d["title"] for d in halves) == ["Mean", "Statistics"]
+
+
+def test_unterminated_last_line_is_skipped(tmp_path):
+    import json
+
+    from datagen.corpus import read_jsonl
+
+    path = tmp_path / "w.jsonl"
+    path.write_text(json.dumps({"a": 1}) + "\n" + '{"a": 2, "text": "still downl', encoding="utf-8")
+    assert list(read_jsonl(path)) == [{"a": 1}]
+
+
 def test_corpus_text_cannot_produce_special_tokens(tmp_path):
     torch = pytest.importorskip("torch")  # noqa: F841 — model.data тянет torch
     from model.data import TOKENIZER, TokenStream, write_tokens

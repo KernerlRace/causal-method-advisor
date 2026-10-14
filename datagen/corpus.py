@@ -184,8 +184,15 @@ def split_of(doc: dict) -> str:
 
 
 def corpus_docs(split: str | None = None, files: tuple[str, ...] = CORPUS_FILES) -> Iterator[dict]:
+    """Документы корпуса без точных повторов: в категориях бывают перенаправления, и одна статья
+    приходит под двумя названиями — копия могла бы попасть в val, а оригинал в train."""
+    seen: set[bytes] = set()
     for name in files:
         for doc in read_jsonl(CORPUS / name):
+            digest = hashlib.md5(doc["text"].encode()).digest()
+            if digest in seen:
+                continue
+            seen.add(digest)
             if split is None or split_of(doc) == split:
                 yield doc
 
