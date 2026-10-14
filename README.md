@@ -8,6 +8,9 @@ Give it a CSV and a question in plain language — *"Did the campaign raise sale
 *"What drives churn?"* — and it recommends which causal inference method to use, and why.
 If the question is ambiguous or the data cannot answer it, it says so and offers alternatives.
 
+**▶ Live demo: [causal-method-advisor.streamlit.app](https://causal-method-advisor.streamlit.app)** — pick a demo dataset and press *Advise*.
+<sub>The free hosting sleeps when idle — the first load can take up to a minute.</sub>
+
 The goal is a small language model written and trained from scratch (no pretrained weights, no Hugging Face)
 that understands the question and explains the choice, while deterministic code does the statistics.
 The model is the next stage; today the pipeline runs end to end on a classical-ML baseline.
