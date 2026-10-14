@@ -50,8 +50,8 @@ def test_smoking_is_panel_with_single_treated_state(smoking):
 def test_smoking_rejects_parallel_trends_and_prefers_synthetic_methods(smoking):
     vs, flags, _ = verdicts(smoking, CausalQuery("effect", treatment="california", outcome="cigsale"))
     assert "pretrend_violated" in flags
-    assert vs["synthetic_control"].status == ALLOWED
-    assert vs["sdid"].status == ALLOWED
+    assert vs["synthetic_control"].status == ALLOWED, (sorted(flags), vs["synthetic_control"].cons)
+    assert vs["sdid"].status == ALLOWED, (sorted(flags), vs["sdid"].cons)
     assert vs["did"].status == WARNING
     assert any("not parallel" in c for c in vs["did"].cons)
     assert vs["psm"].status == FORBIDDEN  # кросс-секционный метод на панели
