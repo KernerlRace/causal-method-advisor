@@ -2,7 +2,7 @@
 температуры, подобранной на val, и сколько ответов при какой уверенности. Светлая и тёмная версии для README.
 (Токен режима калиброван и без температуры — ECE 0.001, почти все ответы с уверенностью ~1: рисовать нечего.)
 
-  .venv/Scripts/python.exe scripts/plot_calibration.py eval/results/calibration.json docs/img/calibration
+  .venv/Scripts/python.exe -m scripts.plot_calibration eval/results/calibration.json docs/img/calibration
 """
 from __future__ import annotations
 

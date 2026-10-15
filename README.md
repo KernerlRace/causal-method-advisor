@@ -20,7 +20,9 @@ hosting has no PyTorch — run the app locally to talk to the model.
 > articles and a causal-inference handbook, then fine-tuned on the task — now answers through the full pipeline with
 > constrained decoding. On 93 hand-written questions it picks the right method end to end 79% of the time against 60%
 > for the classical baseline, and writes its own explanations, checked number by number against the data.
-> Next: calibrated confidence, the "options" mode and honest refusals.
+> Its confidence is now calibrated (expected calibration error on held-out template questions 0.015 instead of 0.310), and answers it is unsure
+> of become options instead of a recommendation; on 48 trap questions it answers 44% correctly, mostly losing on parsing
+> unfamiliar datasets. Next: confidence in the parse itself, and questions written by other people.
 
 <img src="docs/img/question.png" alt="Asking about California's Proposition 99 on the demo dataset">
 
@@ -53,7 +55,8 @@ The model runs in two passes. Pass 1 reads the data profile and the question and
 end of parse) is tokenised into a prefix tree, and each step picks only among the children of the current node, so the
 model cannot name a column the data does not have. Pass 2 sees the diagnostics and the rule verdicts; the answer mode
 and the method probabilities are read from the softmax over the special `<MODE:*>` and `<M:*>` tokens, rules remove
-forbidden methods, and the model writes the explanation. The explanation is shown only if every number and percentage
+forbidden methods, a calibrated confidence decides between a recommendation, options and a refusal (stage 9 below),
+and the model writes the explanation. The explanation is shown only if every number and percentage
 in it appears in the model's input and it names the top method; otherwise a template explanation built from the same
 facts is used, and the UI says so.
 
@@ -78,6 +81,9 @@ facts is used, and the UI says so.
 | `model/decode.py` | two-pass inference with constrained decoding, method probabilities from the softmax, generated explanations with a fact check; `ask` and `export` commands |
 | `model/limits.py` | load cap for training and evaluation: short pauses keep the GPU busy at most ~65% of the time, PyTorch threads capped at 75% of the cores |
 | `eval/handwritten_questions.jsonl` | 93 questions written by hand outside the template grammar, with gold parses and methods; `eval/handwritten.py` scores any backend on them |
+| `advisor/confidence.py` | calibrated confidence and the answer mode: temperature-scaled method probabilities, recommend / options / refuse; plain NumPy, so the app needs no PyTorch for it |
+| `eval/calibrate.py` | fits the temperature and the answer-mode rule on the validation split and reports on test (`models/calibration.json`, `eval/results/calibration.json`) |
+| `eval/traps.py`, `eval/trap_questions.jsonl`, `data/traps/` | 48 trap questions where a confident recommendation is wrong — hidden confounding, no control group, prediction, poor overlap — on six datasets built by `scripts/make_traps.py` |
 | `datagen/corpus.py` | pretraining corpus: Wikipedia EN/RU articles on statistics, econometrics, causal inference and ML (plus everyday domains), Facure's handbook, our method cards and explanations; resumable polite fetching, cleaning, deduplication, document-level train/val split |
 | `data/demo/` | 12 demo datasets with questions, including the real Prop 99 data |
 
@@ -212,6 +218,78 @@ model no longer learns to model the questions themselves: the type on unseen tem
 stage 6 run to 82.7%. These 93 questions were written during development, not by outside users, so the next fixes
 (an auxiliary loss on the question, a richer grammar for context) must be measured on questions from other people.
 
+### Confidence, options and refusals (stage 9)
+
+The method probabilities were trained on soft labels (the gold weights of every suitable method), so they say how well
+each method fits, not how likely the top one is to be right: for *SDID 1.0, synthetic control 0.4, DiD 0.1* the target is
+two thirds on SDID, although the top method is right 99.1% of the time. A single temperature fitted on the validation
+split (`eval/calibrate.py`, T = 0.087) turns the scores into a probability of being right. When two methods are equally
+best, either counts, half each, so 0.5 is the honest confidence there. On the test split the expected calibration error
+falls from 0.310 to 0.015; the answer-mode token needed no correction (0.001, right 99.9% of the time):
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/calibration_dark.png">
+  <img src="docs/img/calibration.png" alt="Reliability diagram on 4,738 test questions: the raw softmax sits far above the diagonal (ECE 0.310), after temperature scaling the curve follows it (ECE 0.015); most answers end up near confidence 1.0 or 0.5">
+</picture>
+
+Three rules for the answer mode, compared on the true parse; the thresholds were grid-searched on validation by
+balanced accuracy over the three modes:
+
+| Rule | Validation | Test | Test recall: recommend / options / refuse |
+|---|---|---|---|
+| The model's `<MODE:*>` token | 99.9% | 99.9% | 99.8% / 100% / 100% |
+| Confidence: options if the top method's probability is below 0.89 or its lead below 0.39 | 96.9% | 97.2% | 94.1% / 97.7% / 100% |
+| **Either** of the two, whichever is more cautious (thresholds 0.23 and 0.02) | 99.9% | 99.9% | 99.8% / 100% / 100% |
+
+Confidence alone is the worst rule. The gold calls an answer "options" when two methods both weigh at least 0.9, so
+*DiD 1.0, SDID 0.8* is a recommendation and *SDID 1.0, synthetic control 0.9* is not. That line is about how close the
+two methods are, and the top method is right in both cases; the token learned the line exactly, a probability of being
+right cannot express it. The cautious combination ties the token on validation and was chosen by a protocol fixed before
+any trap or hand-written run (ties go to the more cautious rule). In distribution it answers like the token. It changes
+the answer when confidence collapses, which happens out of distribution. Confidence is the calibrated probability of
+the top *allowed* method, not renormalised after the rules: if the model bet on a method the rules forbid, it misread the
+data, and the answer becomes options instead of a confident recommendation of whatever is left. Refusals do not depend on
+a threshold: a question that is not causal, every method ruled out, or sensitivity analysis on top (it bounds the
+effect instead of estimating it).
+
+**Traps** (`eval/traps.py`, 48 questions, 36 English and 12 Russian): questions where a confident recommendation is the
+wrong answer, about six datasets built for this (`data/traps/`) and the demo data. The expected answer was fixed before
+any model saw the questions, and an answer counts only with the right question type and roles:
+
+| Trap | Expected | Baseline | Model, mode token | Model, calibrated |
+|---|---|---|---|---|
+| Hidden confounder named, no instrument or mediator (12) | refuse | 25% | 17% | 17% |
+| No control group: every unit treated at once, or 5 weeks before the change (12) | options or refuse | 92% | 25% | **92%** |
+| Prediction, not a causal question (12) | refuse | 50% | 67% | 67% |
+| Poor overlap: treatment almost fixed by three covariates (12) | options or refuse | 0% | 0% | 0% |
+| All 48 | | 42% | 27% | **44%** |
+| All 48, given the correct parse | | 75% | 56% | **77%** |
+
+On panels without a control group the model's own token says "recommend" 9 times out of 12. The model had bet on DiD or
+synthetic control, the rules ruled them out, and the calibrated confidence in what was left is low, so the answer becomes
+options. Building these traps also exposed a gap in the rule engine: a treatment switched on in every unit at the same
+time was not recognised as a design at all, so DiD stayed allowed; the profiler now records it as a design with no
+controls. The other rows are honest failures. On the two new datasets for hidden confounding and poor overlap the model's
+parse breaks: it names `annual_spend` as the treatment and `income` or `age` as the outcome (roles right on 4 and 0 of
+12 questions), while the baseline finds the roles but misses the hidden confounder. Poor overlap fails for every rule
+even with the correct parse, because the training data never treats poor overlap as a reason for options.
+
+**Hand-written questions, report only** (`eval/results/handwritten_causalgpt_calibrated.json`; nothing was tuned on
+them). The answer mode end to end stays at 83.3% under either rule. The calibrated rule turned four answers into options,
+three of them effect questions misread as heterogeneity questions, where confidence fell to 0.00–0.16 because the model's
+choice was ruled out for that parse. Calibration transfers only partly: confidence averages 0.89 when the method is
+right and 0.72 when it is wrong, the calibration error is 0.175 instead of 0.015, and of the 44 answers given with at
+least 0.9 confidence 82% are right. Most errors here are parse errors, and pass 2 takes a wrong parse at face value, so
+10 of 13 wrong answers still carry a confidence of 0.7 or more. The Prop 99 demo is one: with `age15to24` as the
+treatment the model is 100% sure of regression. The UI therefore shows the number as confidence *if the roles in step 1
+are right*, next to the roles the user can correct.
+
+So the confidence is honest on data like the training data and catches one kind of failure outside it: the model's
+choice being ruled out. It cannot see a wrong parse that looks consistent, and it cannot invent a caution the training
+data never taught. That sets the next steps: a confidence for the parse itself, so the advisor can ask *"is the treatment
+X?"* when unsure; poor overlap as an options case in the training data; and trap and live questions from other people,
+because these 48, like the 93 hand-written ones, were written during development.
+
 ## Quick start
 
 Windows with an NVIDIA GPU, using [uv](https://docs.astral.sh/uv/):
@@ -265,6 +343,13 @@ Fine-tune, evaluate and talk to the model (needs `checkpoints/pretrain_best.pt` 
 .venv/Scripts/python.exe -m eval.handwritten --backend baseline
 .venv/Scripts/python.exe -m model.decode export checkpoints/sft_pretrained_best.pt   # -> models/causalgpt.pt, 65 MB
 .venv/Scripts/python.exe -m model.decode ask data/demo/smoking.csv "Did Prop 99 reduce cigarette sales?"
+.venv/Scripts/python.exe -m eval.calibrate collect --split val   # pass-2 logits, ~7 min per split under the load cap
+.venv/Scripts/python.exe -m eval.calibrate collect --split test
+.venv/Scripts/python.exe -m eval.calibrate fit                   # -> models/calibration.json, eval/results/calibration.json
+.venv/Scripts/python.exe -m scripts.plot_calibration eval/results/calibration.json docs/img/calibration
+.venv/Scripts/python.exe scripts/make_traps.py                   # -> data/traps/
+.venv/Scripts/python.exe -m eval.traps --backend causalgpt       # and --backend baseline
+.venv/Scripts/python.exe -m eval.handwritten --backend causalgpt --name causalgpt_calibrated --explain
 .venv/Scripts/streamlit run app.py                          # the model appears in the sidebar
 ```
 
@@ -279,7 +364,8 @@ Fine-tune, evaluate and talk to the model (needs `checkpoints/pretrain_best.pt` 
 - [x] Pretraining on an open corpus (Wikipedia EN/RU, Facure's handbook, 23M tokens)
 - [x] Fine-tuning on the task, constrained decoding, two-pass inference — beats the baseline on hand-written questions
 - [ ] Questions written by other people as the live test set
-- [ ] Calibrated confidence, "options" mode and honest refusals
+- [x] Calibrated confidence, "options" mode and honest refusals, trap questions
+- [ ] Confidence in the parse itself; poor overlap taught as an options case
 - [ ] Evaluation against the baselines, demo scenarios
 
 The detailed design document (in Russian) is in [PLAN.md](PLAN.md).

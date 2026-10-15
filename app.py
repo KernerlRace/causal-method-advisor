@@ -164,11 +164,12 @@ with left:
 with right:
     if advice.confidence is not None and advice.methods and advice.mode != "refuse":
         top = CARDS[next(iter(advice.methods))].name
-        st.metric(f"Confidence that {top} is the best choice", f"{advice.confidence:.0%}",
+        st.metric(f"Confidence in {top}, if the roles in step 1 are right", f"{advice.confidence:.0%}",
                   help="Calibrated on held-out validation questions: of the answers given with about this "
-                       "confidence, about this share named the best method. Below the threshold chosen on "
-                       "validation, or with a close second method, the advisor shows options instead of one "
-                       "recommendation.")
+                       "confidence, about this share named the best method. It assumes the question was understood "
+                       "as shown in step 1 — check the treatment and outcome there; a wrong role can come with high "
+                       "confidence. Below the threshold chosen on validation, or with a close second method, the "
+                       "advisor shows options instead of one recommendation.")
     if advice.methods:
         st.caption("Method scores (rules have already removed impossible methods)")
         for m, p in list(advice.methods.items())[:5]:
