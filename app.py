@@ -96,7 +96,7 @@ if df is None:
     st.stop()
 
 with st.expander(f"Data preview: {df.shape[0]} rows × {df.shape[1]} columns", expanded=False):
-    st.dataframe(df.head(20), use_container_width=True)
+    st.dataframe(df.head(20), width="stretch")
 
 question = st.text_area("Your question (English or Russian)", value=default_q, height=90,
                         key=f"q-{source}-{default_q[:20]}")
@@ -190,4 +190,4 @@ for m in list(advice.methods)[:3]:
 with st.expander("All methods and the rules that filtered them"):
     rows = [{"": STATUS_ICON[v.status], "method": CARDS[v.method].name, "status": v.status,
              "why": "; ".join(v.reasons + v.cons) or "; ".join(v.pros)} for v in advice.verdicts]
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
