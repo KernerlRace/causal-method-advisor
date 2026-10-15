@@ -17,7 +17,10 @@
       "options": 1,
       "recommend": 9
     },
-    "correct_gold_parse_token": 1.0
+    "correct_gold_parse_token": 1.0,
+    "wrong_parses_caught": "8 of 8",
+    "right_parses_flagged": "0 of 4",
+    "correct_or_caught": 0.833
   },
   "no_controls": {
     "n": 12,
@@ -37,7 +40,10 @@
       "options": 0,
       "recommend": 9
     },
-    "correct_gold_parse_token": 0.25
+    "correct_gold_parse_token": 0.25,
+    "wrong_parses_caught": "1 of 1",
+    "right_parses_flagged": "8 of 11",
+    "correct_or_caught": 1.0
   },
   "prediction": {
     "n": 12,
@@ -57,7 +63,10 @@
       "options": 0,
       "recommend": 2
     },
-    "correct_gold_parse_token": 1.0
+    "correct_gold_parse_token": 1.0,
+    "wrong_parses_caught": "4 of 4",
+    "right_parses_flagged": "4 of 8",
+    "correct_or_caught": 1.0
   },
   "poor_overlap": {
     "n": 12,
@@ -77,7 +86,10 @@
       "options": 1,
       "recommend": 9
     },
-    "correct_gold_parse_token": 0.0
+    "correct_gold_parse_token": 0.0,
+    "wrong_parses_caught": "12 of 12",
+    "right_parses_flagged": "0 of 0",
+    "correct_or_caught": 1.0
   },
   "all": {
     "n": 48,
@@ -97,6 +109,17 @@
       "options": 2,
       "recommend": 29
     },
-    "correct_gold_parse_token": 0.562
+    "correct_gold_parse_token": 0.562,
+    "wrong_parses_caught": "25 of 25",
+    "right_parses_flagged": "12 of 23",
+    "correct_or_caught": 0.958
+  },
+  "parse_confidence": {
+    "parse confidence: AUROC, right vs wrong parse": "0.936",
+    "parse confidence: mean when parse right": "0.954  (n=23)",
+    "parse confidence: mean when parse wrong": "0.540  (n=25)",
+    "parse confidence: ECE (10 bins)": "0.259  (n=48)",
+    "asks to confirm: wrong parses": "1.000  (n=25)",
+    "asks to confirm: right parses (false alarms)": "0.522  (n=23)"
   }
 }
