@@ -53,17 +53,25 @@ class NeuralBackend:
     name = "causalgpt"
 
     def __init__(self, ckpt: Path = MODELS_DIR / "causalgpt.pt", device=None):
-        from model.decode import Advisor
+        from model.decode import Advisor, ContextOverflow
         self.model = Advisor(ckpt, device)
+        self.overflow = ContextOverflow
 
     def parse(self, question, card_text):
-        return self.model.parse(question, card_text)
+        try:
+            return self.model.parse(question, card_text)
+        except self.overflow as e:
+            raise AdviceError(str(e)) from e
 
     def rank(self, structure, diagnostics, verdicts, fields, question="", card_text=""):
         if fields.get("type") == "not_causal":
             return {}, "refuse"
         forbidden = {m for m, v in verdicts.items() if v["status"] == "forbidden"}
-        probs, mode, _ = self.model.rank(question, card_text, fields, _diag(diagnostics, verdicts, fields), forbidden)
+        try:
+            probs, mode, _ = self.model.rank(question, card_text, fields, _diag(diagnostics, verdicts, fields),
+                                             forbidden)
+        except self.overflow as e:
+            raise AdviceError(str(e)) from e
         return probs, mode
 
     def explain(self, question, card_text, fields, diagnostics, verdicts, probs, mode) -> str | None:
@@ -71,7 +79,10 @@ class NeuralBackend:
         from model.decode import explanation_ok
 
         diag = _diag(diagnostics, verdicts, fields)
-        text = self.model.explain(question, card_text, fields, diag, probs, mode)
+        try:
+            text = self.model.explain(question, card_text, fields, diag, probs, mode)
+        except self.overflow:
+            return None
         top = next(iter(probs)) if probs and mode != "refuse" else None
         return text if explanation_ok(text, "\n".join((card_text, question, diag)), top) else None
 
