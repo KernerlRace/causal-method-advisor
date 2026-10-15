@@ -259,6 +259,28 @@ def _avoid(rec: dict, best: set, lang: str, rng) -> str | None:
 
 # ---------- объяснение ----------
 
+def _refuse_no_method(rec: dict, lang: str) -> str:
+    """Отказ не из-за скрытого конфаундера: правила запретили всё, что подошло бы по виду данных и вопросу
+    (в обучающих данных таких отказов нет — там отказ всегда про скрытый конфаундер)."""
+    en = lang == "en"
+    t, y = rec["query"]["treatment"], rec["query"]["outcome"]
+    near = {m: v["reasons"] for m, v in rec["verdicts"].items()
+            if v["status"] == "forbidden" and v["reasons"]
+            and not any(r.startswith(("answers ", "needs cross_section", "needs panel", "needs time_series"))
+                        for r in v["reasons"])}
+    fact = facts(rec, lang)[-1]
+    if en:
+        why = " ".join(f"{name(m, lang)} {v[0]}." for m, v in list(near.items())[:3])
+        return (f"No method can estimate the effect of `{t}` on `{y}` from this data. {fact} {why} "
+                f"What you can do: collect data on comparable units that did not get the treatment, or a longer "
+                f"history before it, and ask again.").replace("  ", " ")
+    names = _join([name(m, lang) for m in list(near)[:3]], lang)
+    return (f"По этим данным нельзя оценить эффект `{t}` на `{y}`: ни один метод не применим. {fact} "
+            + (f"Методам, которые подошли бы по виду данных ({names}), данных не хватает. " if names else "")
+            + "Что можно сделать: собрать данные о похожих объектах без воздействия или более длинную историю "
+              "до него и задать вопрос снова.")
+
+
 def explain(rec: dict, lang: str, rng) -> str:
     q, gold, mode = rec["query"], rec["gold"], rec["answer_mode"]
     en = lang == "en"
@@ -273,6 +295,8 @@ def explain(rec: dict, lang: str, rng) -> str:
                 f"`{y}`, а не что будет, если что-то изменить. Используйте предсказательную модель (например, "
                 f"градиентный бустинг или регуляризованную регрессию) с кросс-валидацией или описательную "
                 f"статистику. Причинные методы нужны, только если вы собираетесь вмешиваться и хотите знать эффект.")
+    if mode == "refuse" and not q.get("hidden_confounding"):
+        return _refuse_no_method(rec, lang)
     if mode == "refuse":
         t, y = q["treatment"], q["outcome"]
         f = facts(rec, lang)[-1]

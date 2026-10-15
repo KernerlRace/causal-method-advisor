@@ -16,6 +16,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from advisor.confidence import CALIBRATION, Calibration, Decision
 from advisor.diagnostics import DiagResult, run_diagnostics
 from advisor.profiler import DataCard, profile
 from advisor.query import CausalQuery
@@ -49,13 +50,20 @@ class BaselineBackend:
 
 class NeuralBackend:
     """CausalGPT-mini: проход 1 — разбор с ограниченным декодированием (колонки только из этого CSV),
-    проход 2 — режим и вероятности методов из softmax, объяснение — генерация (model/decode.py)."""
+    проход 2 — вероятности методов из softmax, режим ответа по калиброванной уверенности
+    (advisor/confidence.py, файл models/calibration.json), объяснение — генерация (model/decode.py)."""
     name = "causalgpt"
 
-    def __init__(self, ckpt: Path = MODELS_DIR / "causalgpt.pt", device=None):
+    def __init__(self, ckpt: Path = MODELS_DIR / "causalgpt.pt", device=None, calibration: Path | None = CALIBRATION):
         from model.decode import Advisor, ContextOverflow
-        self.model = Advisor(ckpt, device)
+        cal = Calibration.load(calibration, model=Path(ckpt)) if calibration is not None else Calibration()
+        self.model = Advisor(ckpt, device, cal)
         self.overflow = ContextOverflow
+        self.last: Decision | None = None  # решение последнего rank: уверенность, режим по токену модели
+
+    @property
+    def calibrated(self) -> bool:
+        return bool(self.model.calibration.model_sha)
 
     def parse(self, question, card_text):
         try:
@@ -64,15 +72,15 @@ class NeuralBackend:
             raise AdviceError(str(e)) from e
 
     def rank(self, structure, diagnostics, verdicts, fields, question="", card_text=""):
+        self.last = None
         if fields.get("type") == "not_causal":
             return {}, "refuse"
         forbidden = {m for m, v in verdicts.items() if v["status"] == "forbidden"}
         try:
-            probs, mode, _ = self.model.rank(question, card_text, fields, _diag(diagnostics, verdicts, fields),
-                                             forbidden)
+            self.last = self.model.decide(question, card_text, fields, _diag(diagnostics, verdicts, fields), forbidden)
         except self.overflow as e:
             raise AdviceError(str(e)) from e
-        return probs, mode
+        return self.last.probs, self.last.mode
 
     def explain(self, question, card_text, fields, diagnostics, verdicts, probs, mode) -> str | None:
         """Объяснение модели или None, если в нём есть число не из входа или не назван лучший метод."""
@@ -114,6 +122,7 @@ class Advice:
     backend: str
     notes: list[str] = field(default_factory=list)
     explanation_source: str = "template"  # model — написала нейросеть, template — шаблон из фактов
+    confidence: float | None = None  # калиброванная вероятность, что лучший метод верен (только нейросеть)
 
 
 def detect_lang(question: str) -> str:
@@ -184,13 +193,17 @@ def advise(df: pd.DataFrame, question: str, backend: Backend, fields: dict | Non
     if query.question_type != "not_causal" and not probs:
         mode = "refuse"
         notes.append("no method is applicable to this data and question")
+    decision = getattr(backend, "last", None)
+    confidence = decision.confidence if decision is not None and getattr(backend, "calibrated", False) else None
     lang = detect_lang(question)
     rec = {"query": {"question_type": query.question_type, "treatment": query.treatment,
                      "outcome": query.outcome, "hidden_confounding": query.hidden_confounding},
            "gold": weights_for_explanation(probs, mode), "answer_mode": mode, "diagnostics": dd,
            "verdicts": vd, "params": {"target": fields.get("target")}}
     text, source = None, "template"
-    if hasattr(backend, "explain") and query.question_type != "not_causal":
+    # отказы модель училась объяснять только скрытым конфаундером: другой отказ объясняет шаблон
+    model_can_explain = probs and (mode != "refuse" or query.hidden_confounding)
+    if hasattr(backend, "explain") and query.question_type != "not_causal" and model_can_explain:
         text = backend.explain(question, card_text, fields, dd, vd, probs, mode)
         if text is not None:
             source = "model"
@@ -199,4 +212,4 @@ def advise(df: pd.DataFrame, question: str, backend: Backend, fields: dict | Non
     if text is None:
         seed = int(hashlib.md5(question.encode()).hexdigest(), 16) % (2 ** 32)
         text = explain(rec, lang, np.random.default_rng(seed))
-    return Advice(lang, fields, card, diags, verdicts, probs, mode, text, backend.name, notes, source)
+    return Advice(lang, fields, card, diags, verdicts, probs, mode, text, backend.name, notes, source, confidence)
