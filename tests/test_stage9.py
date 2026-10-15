@@ -253,3 +253,169 @@ def test_trap_datasets_are_what_they_claim():
     assert "poor_overlap" in flags["card_offer_poor_overlap"] and "poor_overlap" in flags["icu_poor_overlap"]
     assert "running_variable_found" not in flags["card_offer_poor_overlap"] | flags["icu_poor_overlap"]
     assert "no_controls" in flags["stores_all_treated"] and "no_controls" in flags["newsletter_short_series"]
+
+
+# ---------- уверенность в разборе (проход 1) ----------
+
+PARSE_CARD = ("rows=500 cols=4 structure=cross_section\n"
+              "col sales numeric uniq=480 range=[1..90]\n"
+              "col promo binary uniq=2 values=yes|no\n"
+              "col region categorical uniq=3 values=n|s|e\n"
+              "col sales_lag numeric uniq=470 range=[1..88]")
+
+
+def _scores(type_lp=-1e-6, treat=-1e-6, out=-1e-6, off=0.0, qtype="effect"):
+    from advisor.confidence import FieldScore, ParseScores
+
+    fields = {k: FieldScore(0.0, -1e-3, v, v + off, 4) for k, v in (("treatment", treat), ("outcome", out))}
+    return ParseScores(qtype, {"effect": 5.0, "heterogeneity": 1.0, "discovery": 0.0, "not_causal": 0.0},
+                       type_lp, type_lp, fields if qtype != "discovery" else {})
+
+
+def test_parse_scores_round_trip_and_weakest_part():
+    from advisor.confidence import ParseScores, parse_features
+
+    s = _scores(type_lp=-0.01, treat=-2.0, out=-0.1)
+    assert ParseScores.from_dict(json.loads(json.dumps(s.to_dict()))) == s
+    assert s.parts() == {"type": -0.01, "treatment": -2.0, "outcome": -0.1} and s.weakest() == "treatment"
+    assert _scores(type_lp=-3.0).weakest() == "type"
+    assert _scores(qtype="discovery").parts() == {"type": -1e-6}
+    # больше неуверенности — больше признак log(−log p); масса вне колонок CSV — отдельный признак
+    lo, hi = parse_features(_scores(treat=-1e-6), "parts_loglog"), parse_features(_scores(treat=-0.5), "parts_loglog")
+    assert hi[1] > lo[1] and hi[0] == lo[0]
+    assert parse_features(_scores(off=-3.0), "parts_loglog")[2] > parse_features(_scores(), "parts_loglog")[2]
+    assert parse_features(s, "joint")[0] == pytest.approx(-2.11)
+
+
+def test_logistic_fit_auroc_and_log_loss():
+    from advisor.confidence import auroc, fit_logistic, log_loss, sigmoid
+
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(20000, 2))
+    y = rng.random(20000) < sigmoid(X @ np.array([2.0, -1.0]) + 0.5)
+    w, b = fit_logistic(X, y, l2=1e-3)
+    assert w == pytest.approx([2.0, -1.0], abs=0.1) and b == pytest.approx(0.5, abs=0.1)
+    assert auroc(np.array([0.9, 0.8, 0.1]), np.array([1, 1, 0])) == 1.0
+    assert auroc(np.array([0.1, 0.9]), np.array([1, 0])) == 0.0
+    assert auroc(np.array([0.5, 0.5]), np.array([1, 0])) == 0.5 and auroc(np.ones(3), np.ones(3)) is None
+    assert log_loss(np.array([0.5, 0.5]), np.array([1, 0])) == pytest.approx(np.log(2))
+
+
+def test_parse_confidence_needs_a_parse_calibration():
+    from advisor.confidence import parse_confidence
+
+    s = _scores(treat=-0.7)
+    assert parse_confidence(s, Calibration()) is None and parse_confidence(None, Calibration()) is None
+    cal = Calibration(parse_kind="joint", parse_w=[2.0], parse_b=3.0)
+    assert parse_confidence(s, cal) == pytest.approx(1 / (1 + np.exp(-(3.0 + 2.0 * (-0.7 - 2e-6)))))
+    assert parse_confidence(_scores(treat=-5.0), cal) < parse_confidence(s, cal)
+
+
+def _value_tree(adv, cache, logits, seqs, i=0) -> dict:
+    """Эталон для _choose: вероятность каждого варианта при пошаговом выборе среди совместимых токенов."""
+    import torch
+
+    if len(seqs) == 1:
+        return {next(iter(seqs)): 1.0}
+    allowed = sorted({s[i] for s in seqs.values() if len(s) > i})
+    p = torch.softmax(logits.double()[allowed], -1)
+    out = {}
+    for t, pt in zip(allowed, p.tolist()):
+        sub = {v: s for v, s in seqs.items() if len(s) > i and s[i] == t}
+        branch = cache.fork()
+        nxt = adv._feed(branch, [t]) if len(sub) > 1 else None
+        out.update({v: pt * q for v, q in _value_tree(adv, branch, nxt, sub, i + 1).items()})
+    return out
+
+
+def test_parse_records_the_probability_of_every_choice(tmp_path):
+    import torch
+    from model.decode import Advisor, card_columns
+
+    adv = Advisor(_tiny_model(tmp_path), "cpu")  # случайные веса: вероятности не крайние
+    for q in ("Did the promo raise sales?", "Forecast sales", "What causes what?"):
+        fields = adv.parse(q, PARSE_CARD)
+        s = adv.last_parse
+        assert s.type == fields["type"] and set(s.fields) == set(fields) - {"type"}
+        p_type = torch.softmax(torch.tensor(list(s.type_logits.values()), dtype=torch.float64), -1).max()
+        assert np.exp(s.type_lp) == pytest.approx(float(p_type), rel=1e-4) and s.type_lp_full <= s.type_lp <= 0
+        for f in s.fields.values():
+            assert f.key_lp_full <= f.key_lp <= 0 and f.value_lp_full <= f.value_lp + 1e-9 <= 1e-9 and f.n >= 1
+        assert s.end_lp <= 0
+    # жадная вероятность значения — распределение по колонкам (sales и sales_lag делят первые токены)
+    cache, logits = adv._start(adv.pr.pass1(PARSE_CARD, "Did the promo raise sales?"))
+    n = len(adv.pr.text(" treatment"))
+    seqs = {c: adv.pr.text(f" treatment=`{c}`")[n:] for c in card_columns(PARSE_CARD)}
+    value, lp, _ = adv._choose(cache, logits, seqs)
+    tree = _value_tree(adv, cache, logits, seqs)
+    assert sum(tree.values()) == pytest.approx(1.0) and np.exp(lp) == pytest.approx(tree[value], rel=1e-4)
+
+
+def test_advice_asks_to_confirm_an_uncertain_parse(tmp_path, rct):
+    from advisor.pipeline import NeuralBackend
+
+    model = _tiny_model(tmp_path)
+    path = tmp_path / "calibration.json"
+    q = "Did the coupon raise spend?"
+    # порог 1.0: попросить подтвердить любой разбор; 0.0 — никогда
+    for min_parse, asks in ((1.0, True), (0.0, False)):
+        Calibration(0.5, 1.0, 0.3, 0.1, "either", model_sha=file_sha(model), parse_kind="joint", parse_w=[1.0],
+                    parse_b=2.0, min_parse=min_parse).save(path)
+        nb = NeuralBackend(model, "cpu", calibration=path)
+        a = advise(rct, q, nb)
+        assert 0 <= a.parse_confidence <= 1
+        assert (a.confirm is not None) == asks
+        if asks:
+            assert a.confirm == nb.last_parse.weakest() and a.confirm in ("type", "treatment", "outcome", "target")
+    fields = {"type": "effect", "treatment": "got_coupon", "outcome": "spend"}
+    confirmed = advise(rct, q, nb, fields=fields)  # роли задал или подтвердил пользователь
+    assert confirmed.parse_confidence is None and confirmed.confirm is None
+    Calibration(model_sha="another model").save(path)
+    a = advise(rct, q, NeuralBackend(model, "cpu", calibration=path))
+    assert a.parse_confidence is None and a.confirm is None
+
+
+def _parse_runs(path: Path, wrong_share: dict[str, float], n: int = 600) -> None:
+    rng = np.random.default_rng(2)
+    for split, share in wrong_share.items():
+        with (path / f"parse_{split}.jsonl").open("w", encoding="utf-8") as f:
+            for i in range(n):
+                right = rng.random() >= share
+                treat = -rng.exponential(1e-4) if right else -rng.exponential(1.0)
+                gold = {"type": "effect", "treatment": "t", "outcome": "y"}
+                pred = gold if right else {**gold, "treatment": "x"}
+                f.write(json.dumps({"id": f"s{i // 2}#q{i % 2}", "gold": gold, "pred": pred,
+                                    "scores": _scores(treat=treat).to_dict()}) + "\n")
+        (path / f"parse_{split}.meta.json").write_text(json.dumps({"split": split, "model_sha": "m"}))
+
+
+def test_parse_calibration_is_fitted_on_val_only(tmp_path, monkeypatch):
+    """fit_parse: признаки выбираются по CV на val, порог — на val; на test только отчёт."""
+    import eval.calibrate as calib
+    from advisor.confidence import PARSE_KINDS
+
+    _parse_runs(tmp_path, {"val": 0.1, "test": 0.1})
+    monkeypatch.setattr(calib, "RUNS", tmp_path)
+    cal = Calibration(model_sha="m")
+    report = calib.fit_parse(cal)
+    assert cal.parse_kind in PARSE_KINDS and cal.parse_kind == report["kind"] and len(cal.parse_w) >= 1
+    assert report["test"]["calibrated"]["auroc"] > 0.95 and 0 < cal.min_parse < 1
+    assert report["test"]["flag"]["wrong_flagged"] > 0.8 and report["test"]["flag"]["right_flagged"] < 0.2
+    with pytest.raises(SystemExit):
+        calib.fit_parse(Calibration(model_sha="another model"))
+
+
+def test_too_few_wrong_parses_fall_back_to_the_models_own_probability(tmp_path, monkeypatch):
+    """На знакомых шаблонах модель почти не ошибается: подбирать не на чем, порог — 1% ложных тревог на val."""
+    import eval.calibrate as calib
+    from advisor.confidence import parse_confidence
+
+    _parse_runs(tmp_path, {"val": 0.0, "test": 0.2})
+    monkeypatch.setattr(calib, "RUNS", tmp_path)
+    cal = Calibration(model_sha="m")
+    report = calib.fit_parse(cal)
+    assert report["val_wrong_parses"] == 0 and cal.parse_kind == "raw" and cal.parse_w == []
+    assert report["val"]["flag"]["flagged"] == pytest.approx(calib.FALSE_ALARMS, abs=0.005)
+    assert report["test"]["calibrated"]["auroc"] > 0.95
+    s = _scores(treat=-0.3)
+    assert parse_confidence(s, cal) == pytest.approx(np.exp(sum(s.parts().values())))

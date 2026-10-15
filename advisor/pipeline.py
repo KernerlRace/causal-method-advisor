@@ -16,7 +16,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from advisor.confidence import CALIBRATION, Calibration, Decision
+from advisor.confidence import CALIBRATION, Calibration, Decision, ParseScores, parse_confidence
 from advisor.diagnostics import DiagResult, run_diagnostics
 from advisor.profiler import DataCard, profile
 from advisor.query import CausalQuery
@@ -49,9 +49,9 @@ class BaselineBackend:
 
 
 class NeuralBackend:
-    """CausalGPT-mini: проход 1 — разбор с ограниченным декодированием (колонки только из этого CSV),
-    проход 2 — вероятности методов из softmax, режим ответа по калиброванной уверенности
-    (advisor/confidence.py, файл models/calibration.json), объяснение — генерация (model/decode.py)."""
+    """CausalGPT-mini: проход 1 — разбор с ограниченным декодированием (колонки только из этого CSV) и
+    калиброванная уверенность в нём, проход 2 — вероятности методов из softmax, режим ответа по калиброванной
+    уверенности (advisor/confidence.py, файл models/calibration.json), объяснение — генерация (model/decode.py)."""
     name = "causalgpt"
 
     def __init__(self, ckpt: Path = MODELS_DIR / "causalgpt.pt", device=None, calibration: Path | None = CALIBRATION):
@@ -60,16 +60,29 @@ class NeuralBackend:
         self.model = Advisor(ckpt, device, cal)
         self.overflow = ContextOverflow
         self.last: Decision | None = None  # решение последнего rank: уверенность, режим по токену модели
+        self.last_parse: ParseScores | None = None  # вероятности выборов последнего parse
 
     @property
     def calibrated(self) -> bool:
         return bool(self.model.calibration.model_sha)
 
     def parse(self, question, card_text):
+        self.last_parse = None
         try:
-            return self.model.parse(question, card_text)
+            fields = self.model.parse(question, card_text)
         except self.overflow as e:
             raise AdviceError(str(e)) from e
+        self.last_parse = self.model.last_parse
+        return fields
+
+    def parse_check(self) -> tuple[float | None, str | None]:
+        """Уверенность в последнем разборе (калиброванная вероятность, что тип и роли верны) и что попросить
+        подтвердить: самую неуверенную часть разбора, если уверенность ниже порога с validation, иначе None."""
+        cal = self.model.calibration
+        p = parse_confidence(self.last_parse, cal) if self.calibrated else None
+        if p is None or p >= cal.min_parse:
+            return p, None
+        return p, self.last_parse.weakest()
 
     def rank(self, structure, diagnostics, verdicts, fields, question="", card_text=""):
         self.last = None
@@ -123,6 +136,8 @@ class Advice:
     notes: list[str] = field(default_factory=list)
     explanation_source: str = "template"  # model — написала нейросеть, template — шаблон из фактов
     confidence: float | None = None  # калиброванная вероятность, что лучший метод верен (только нейросеть)
+    parse_confidence: float | None = None  # калиброванная вероятность, что тип и роли разобраны верно
+    confirm: str | None = None  # что попросить подтвердить (type / treatment / outcome / target): разбор неуверенный
 
 
 def detect_lang(question: str) -> str:
@@ -183,8 +198,11 @@ def advise(df: pd.DataFrame, question: str, backend: Backend, fields: dict | Non
     card = profile(df)
     card_text = card.to_text()
     notes = []
+    parse_conf, confirm = None, None  # разбор, заданный пользователем, не проверяем
     if fields is None:
         fields = backend.parse(question, card_text)
+        if hasattr(backend, "parse_check"):
+            parse_conf, confirm = backend.parse_check()
     query = query_from_fields(fields, list(df.columns))
     diags = run_diagnostics(df, card, query)
     verdicts = evaluate(card, query, diags)
@@ -212,4 +230,5 @@ def advise(df: pd.DataFrame, question: str, backend: Backend, fields: dict | Non
     if text is None:
         seed = int(hashlib.md5(question.encode()).hexdigest(), 16) % (2 ** 32)
         text = explain(rec, lang, np.random.default_rng(seed))
-    return Advice(lang, fields, card, diags, verdicts, probs, mode, text, backend.name, notes, source, confidence)
+    return Advice(lang, fields, card, diags, verdicts, probs, mode, text, backend.name, notes, source, confidence,
+                  parse_conf, confirm)

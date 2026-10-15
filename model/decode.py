@@ -11,6 +11,10 @@
 с претрейном, 72 и 72 против 78 у модели с нуля: сумма log-вероятностей тянет к коротким именам
 (`state`, `cigsale`). Варианты оставлены в _choose для экспериментов.
 
+Вероятность каждого выбора прохода 1 (тип, ключи, значения — внутри разрешённого и в полном softmax)
+записывается в Advisor.last_parse; из неё — калиброванная уверенность в разборе (advisor/confidence.py):
+если она ниже порога с validation, советник просит подтвердить самую неуверенную роль.
+
 Проход 2 — после диагностик. Логиты <MODE:*> и <M:*> в позиции первого метода (её учили мягкой меткой);
 правила убирают запрещённые методы, режим ответа и калиброванная уверенность — advisor/confidence.py
 (без файла калибровки режим — argmax по <MODE:*>, как на этапе 8). Объяснение модель пишет сама; если
@@ -25,7 +29,7 @@ from pathlib import Path
 
 import torch
 
-from advisor.confidence import Calibration, Decision, decide
+from advisor.confidence import Calibration, Decision, FieldScore, ParseScores, decide
 from advisor.knowledge import load_cards
 from model.data import TOKENIZER
 from model.sft import FIELD_ORDER, Prompter, parse_text
@@ -98,6 +102,7 @@ class Advisor:
         self.values = "greedy"  # выбор значения поля: greedy | sequence | mean (см. _choose)
         self.pause = None  # вызывается после каждого прохода модели: потолок нагрузки (model.limits.GpuDuty)
         self.calibration = calibration or Calibration()  # без файла: T = 1, режим — токен модели
+        self.last_parse: ParseScores | None = None  # вероятности выборов последнего parse
 
     # ---------- общее ----------
 
@@ -118,66 +123,84 @@ class Advisor:
         return logits
 
     @staticmethod
-    def _pick(logits: torch.Tensor, allowed: list[int]) -> tuple[int, float]:
-        """argmax только среди allowed и его вероятность внутри этого набора."""
-        sub = logits[allowed]
-        p = torch.softmax(sub, -1)
-        j = int(p.argmax())
-        return allowed[j], float(p[j])
+    def _pick(logits: torch.Tensor, allowed: list[int]) -> tuple[int, float, float]:
+        """argmax только среди allowed: (токен, его log-вероятность внутри набора, она же в полном softmax).
+        В float64: у уверенных выборов вероятность отличается от 1 на 1e-9 и меньше, float32 это округляет."""
+        z = logits.double()
+        lp = torch.log_softmax(z[allowed], -1)
+        j = int(lp.argmax())
+        return allowed[j], float(lp[j]), float(torch.log_softmax(z, -1)[allowed[j]])
 
     # ---------- проход 1 ----------
 
     @torch.no_grad()
     def _logprob(self, cache: KVCache, logits: torch.Tensor, seq: list[int]) -> float:
         """log P(seq | префикс) по ветке кэша: тензоры префикса не копируются и не меняются."""
-        lp = float(torch.log_softmax(logits, -1)[seq[0]])
+        lp = float(torch.log_softmax(logits.double(), -1)[seq[0]])
         if len(seq) > 1:
             x = torch.tensor([seq[:-1]], device=self.device)
-            out = torch.log_softmax(self.model(x, cache=cache.fork())[0][0].float(), -1)
+            out = torch.log_softmax(self.model(x, cache=cache.fork())[0][0].double(), -1)
             if self.pause is not None:
                 self.pause()
             lp += float(out[torch.arange(len(seq) - 1), torch.tensor(seq[1:], device=self.device)].sum())
         return lp
 
     @torch.no_grad()
-    def _choose(self, cache: KVCache, logits: torch.Tensor, seqs: dict[str, list[int]]) -> str:
+    def _choose(self, cache: KVCache, logits: torch.Tensor, seqs: dict[str, list[int]]) -> tuple[str, float, float]:
+        """→ (значение, его log-вероятность среди вариантов, log-вероятность выбранных токенов в полном softmax).
+        Жадно это сумма log-вероятностей токенов внутри разрешённых на каждом шаге: распределение по
+        вариантам (в сумме 1). Разница с полной log-вероятностью — сколько массы модель отдавала токенам,
+        которые не продолжают ни одну колонку этого CSV."""
         if self.values == "greedy":  # argmax по токену среди ещё совместимых вариантов
-            branch, cand, i = cache.fork(), dict(seqs), 0
+            branch, cand, i, lp, full = cache.fork(), dict(seqs), 0, 0.0, 0.0
             while len(cand) > 1:
                 allowed = sorted({s[i] for s in cand.values() if len(s) > i})
-                t, _ = self._pick(logits, allowed)
+                t, lp_t, full_t = self._pick(logits, allowed)
+                lp, full = lp + lp_t, full + full_t
                 cand = {v: s for v, s in cand.items() if len(s) > i and s[i] == t}
                 i += 1
                 if len(cand) > 1:
                     logits = self._feed(branch, [t])
-            return next(iter(cand))
+            return next(iter(cand)), lp, full
         score = {v: self._logprob(cache, logits, s) for v, s in seqs.items()}
+        full = dict(score)
         if self.values == "mean":
             score = {v: score[v] / len(seqs[v]) for v in score}
-        return max(score, key=score.get)
+        best = max(score, key=score.get)
+        lp = torch.log_softmax(torch.tensor(list(score.values()), dtype=torch.float64), -1)
+        return best, float(lp[list(score).index(best)]), full[best]
 
     @torch.no_grad()
     def parse(self, question: str, card_text: str) -> dict:
+        """Разбор вопроса; вероятности всех выборов — в self.last_parse (ParseScores, для уверенности в разборе)."""
         columns = card_columns(card_text)
         cache, logits = self._start(self.pr.pass1(card_text, question))
-        t, _ = self._pick(logits, list(self.types.values()))
+        type_ids = list(self.types.values())
+        t, type_lp, type_full = self._pick(logits, type_ids)
         qtype = next(k for k, v in self.types.items() if v == t)
+        scores = ParseScores(qtype, {k: float(logits[v]) for k, v in self.types.items()}, type_lp, type_full)
         fields: dict = {"type": qtype}
         logits = self._feed(cache, [t])
         while options := next_options(qtype, fields, columns):
             # ключ — по вероятности его слова (она уже суммирует все значения); None — конец разбора
             keys = list(dict.fromkeys(None if o is None else o[0] for o in options))
             key_tokens = {k: [self.pr.sp["DIAG"]] if k is None else self.pr.text(f" {k}") for k in keys}
-            key = max(keys, key=lambda k: self._logprob(cache, logits, key_tokens[k]))
+            key_full = {k: self._logprob(cache, logits, key_tokens[k]) for k in keys}
+            key = max(keys, key=key_full.get)
+            z = torch.tensor(list(key_full.values()), dtype=torch.float64)
+            key_lp = float(torch.log_softmax(z, -1)[keys.index(key)])  # среди разрешённых на этом шаге ключей
             if key is None:
+                scores.end_lp, scores.end_lp_full = key_lp, key_full[None]
                 break
             logits = self._feed(cache, key_tokens[key])
             # значение — среди вариантов этого ключа (см. _choose и описание модуля)
             n = len(key_tokens[key])
             rest = {o[1]: self.pr.text(f" {key}=`{o[1]}`")[n:] for o in options if o is not None and o[0] == key}
-            value = self._choose(cache, logits, rest)
+            value, value_lp, value_full = self._choose(cache, logits, rest)
             fields[key] = value
+            scores.fields[key] = FieldScore(key_lp, key_full[key], value_lp, value_full, len(rest))
             logits = self._feed(cache, rest[value])
+        self.last_parse = scores
         return fields
 
     # ---------- проход 2 ----------
@@ -304,6 +327,9 @@ def main() -> None:
     backend = load_backend("causalgpt", **({"ckpt": args.ckpt} if args.ckpt else {}))
     a = advise(load_csv(args.csv), args.question, backend)
     print("parse:  ", parse_text(a.fields))
+    if a.parse_confidence is not None:
+        print(f"         P(type and roles right) = {a.parse_confidence:.4f}"
+              + (f"; please confirm the {a.confirm}" if a.confirm else ""))
     print("mode:   ", a.mode)
     print("methods:", ", ".join(f"{m} {p:.0%}" for m, p in list(a.methods.items())[:5]) or "-")
     print(f"\n{a.explanation}\n\n(explanation: {a.explanation_source})")
