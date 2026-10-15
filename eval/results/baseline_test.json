@@ -1,13 +1,14 @@
 {
-  "mode (gold parse)": "0.999  (n=4970)",
-  "parse.exact (all fields)": "0.816  (n=4970)",
-  "parse.treatment+outcome": "0.854  (n=4970)",
-  "parse.treatment+outcome (ru)": "0.966  (n=769)",
-  "parse.type": "0.982  (n=4970)",
-  "parse.type (heldout tmpl)": "0.789  (n=427)",
-  "refuse correct (gold parse)": "1.000  (n=232)",
-  "top1 (gold parse)": "0.999  (n=4738)",
-  "top1 end-to-end": "0.836  (n=4738)",
-  "top1 rules-only": "0.691  (n=4738)",
-  "top3 (gold parse)": "1.000  (n=4738)"
+  "mode (gold parse)": "0.999  (n=4986)",
+  "mode (gold parse, poor overlap)": "1.000  (n=242)",
+  "parse.exact (all fields)": "0.815  (n=4986)",
+  "parse.treatment+outcome": "0.858  (n=4986)",
+  "parse.treatment+outcome (ru)": "0.971  (n=767)",
+  "parse.type": "0.983  (n=4986)",
+  "parse.type (heldout tmpl)": "0.799  (n=427)",
+  "refuse correct (gold parse)": "1.000  (n=222)",
+  "top1 (gold parse)": "0.998  (n=4764)",
+  "top1 end-to-end": "0.839  (n=4764)",
+  "top1 rules-only": "0.661  (n=4764)",
+  "top3 (gold parse)": "1.000  (n=4764)"
 }
