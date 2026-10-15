@@ -1,0 +1,19 @@
+{
+  "mode end-to-end": "0.833  (n=84)",
+  "mode end-to-end, model's mode token": "0.833  (n=84)",
+  "model explanation passes fact check": "0.973  (n=73)",
+  "not-causal questions refused": "0.700  (n=10)",
+  "parse.context (iv/mediator/threshold/rct/hidden)": "0.785  (n=93)",
+  "parse.exact": "0.656  (n=93)",
+  "parse.treatment+outcome": "0.860  (n=93)",
+  "parse.treatment+outcome (en)": "0.870  (n=69)",
+  "parse.treatment+outcome (ru)": "0.833  (n=24)",
+  "parse.type": "0.871  (n=93)",
+  "top1 (gold parse)": "1.000  (n=80)",
+  "top1 end-to-end": "0.787  (n=80)",
+  "top1 end-to-end (en)": "0.741  (n=58)",
+  "top1 end-to-end (ru)": "0.909  (n=22)",
+  "confidence: mean when top1 right": "0.892  (n=63)",
+  "confidence: mean when top1 wrong": "0.723  (n=13)",
+  "confidence: ECE end to end (10 bins)": "0.175  (n=76)"
+}
