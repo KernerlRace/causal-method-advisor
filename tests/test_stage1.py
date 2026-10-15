@@ -1,4 +1,5 @@
 """Этап 1: профайлер, диагностики и правила на демо-данных и синтетике."""
+import numpy as np
 import pytest
 
 from advisor.diagnostics import all_flags, run_diagnostics
@@ -151,6 +152,18 @@ def test_categorical_outcome_does_not_crash_diagnostics(observational):
     yes_no = observational.assign(good=lambda d: (d["outcome"] > 0).map({True: "yes", False: "no"}))
     nl = run_diagnostics(yes_no, profile(yes_no), CausalQuery("effect", treatment="treatment", outcome="good"))
     assert nl["nonlinearity"].applicable
+
+
+def test_outcome_with_missing_values_does_not_crash_diagnostics(observational):
+    """Исходом может оказаться колонка с пропусками (так прочитан вопрос или такой CSV): строки без исхода
+    в проверке нелинейности не участвуют, а если известных почти нет — проверка неприменима."""
+    df = observational.copy()
+    df.loc[df.index[::4], "outcome"] = np.nan
+    q = CausalQuery("effect", treatment="treatment", outcome="outcome")
+    assert run_diagnostics(df, profile(df), q)["nonlinearity"].applicable
+    df.loc[df.index[20:], "outcome"] = np.nan
+    nl = run_diagnostics(df, profile(df), q)["nonlinearity"]
+    assert not nl.applicable and "known" in nl.message
 
 
 def test_panel_where_every_unit_is_treated_at_once_has_no_controls(parallel_panel):

@@ -352,6 +352,10 @@ def nonlinearity(df: pd.DataFrame, card: DataCard, query: CausalQuery) -> DiagRe
     X = pd.concat([_design_matrix(data, covs), t], axis=1)
     X = X.fillna(X.median()).fillna(0.0)
     y = (to_bool(data[query.outcome]) if y_kind == "binary" else data[query.outcome]).astype(float).values
+    known = np.isfinite(y)  # пропуски в исходе: строки без него в сравнении моделей не участвуют
+    if known.sum() < 30:
+        return _na("nonlinearity", f"fewer than 30 rows with a known '{query.outcome}'")
+    X, y = X[known], y[known]
     r2_lin = float(np.mean(cross_val_score(LinearRegression(), X.values, y, cv=3, scoring="r2")))
     gbm = HistGradientBoostingRegressor(max_iter=100, learning_rate=0.15)
     r2_gbm = float(np.mean(cross_val_score(gbm, X.values, y, cv=3, scoring="r2")))
