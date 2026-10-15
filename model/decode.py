@@ -11,10 +11,11 @@
 с претрейном, 72 и 72 против 78 у модели с нуля: сумма log-вероятностей тянет к коротким именам
 (`state`, `cigsale`). Варианты оставлены в _choose для экспериментов.
 
-Проход 2 — после диагностик. Режим ответа — argmax по <MODE:*>. Вероятности методов — softmax по
-токенам <M:*> в позиции первого метода (её учили мягкой меткой), затем правила убирают запрещённые
-методы. Объяснение модель пишет сама; если в нём есть число, которого нет во входе, или не назван
-лучший метод — пайплайн берёт шаблонное объяснение (datagen.explanations).
+Проход 2 — после диагностик. Логиты <MODE:*> и <M:*> в позиции первого метода (её учили мягкой меткой);
+правила убирают запрещённые методы, режим ответа и калиброванная уверенность — advisor/confidence.py
+(без файла калибровки режим — argmax по <MODE:*>, как на этапе 8). Объяснение модель пишет сама; если
+в нём есть число, которого нет во входе, или не назван лучший метод — пайплайн берёт шаблонное
+объяснение (datagen.explanations).
 """
 from __future__ import annotations
 
@@ -24,6 +25,7 @@ from pathlib import Path
 
 import torch
 
+from advisor.confidence import Calibration, Decision, decide
 from advisor.knowledge import load_cards
 from model.data import TOKENIZER
 from model.sft import FIELD_ORDER, Prompter, parse_text
@@ -82,7 +84,7 @@ class Advisor:
     """Модель советника: parse (проход 1), rank (проход 2) и explain. Без диагностик и правил —
     это общий код пайплайна (advisor/pipeline.py)."""
 
-    def __init__(self, ckpt: Path, device: str | torch.device | None = None):
+    def __init__(self, ckpt: Path, device: str | torch.device | None = None, calibration: Calibration | None = None):
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self.tok = BPETokenizer.load(TOKENIZER)
         self.pr = Prompter(self.tok)
@@ -95,6 +97,7 @@ class Advisor:
         self.space = self.pr.text(" ")
         self.values = "greedy"  # выбор значения поля: greedy | sequence | mean (см. _choose)
         self.pause = None  # вызывается после каждого прохода модели: потолок нагрузки (model.limits.GpuDuty)
+        self.calibration = calibration or Calibration()  # без файла: T = 1, режим — токен модели
 
     # ---------- общее ----------
 
@@ -183,22 +186,26 @@ class Advisor:
         return self.pr.pass2(card_text, question, parse_text(fields), diag)
 
     @torch.no_grad()
+    def scores(self, question: str, card_text: str, fields: dict, diag: str) -> tuple[dict, dict]:
+        """Логиты прохода 2: режимы (<MODE:*>) и методы (<M:*>) в мягкой позиции — после режима,
+        выбранного argmax-ом, как и при ответе."""
+        cache, logits = self._start(self._pass2(question, card_text, fields, diag))
+        modes = {m: float(logits[i]) for m, i in self.modes.items()}
+        mode = max(modes, key=modes.get)
+        logits = self._feed(cache, [self.modes[mode], *self.space])
+        return modes, {m: float(logits[i]) for m, i in self.methods.items()}
+
+    def decide(self, question: str, card_text: str, fields: dict, diag: str,
+               forbidden: set[str] = frozenset(), min_p: float = 0.02) -> Decision:
+        """Режим, вероятности методов после маски правил и калиброванная уверенность (advisor/confidence.py)."""
+        modes, methods = self.scores(question, card_text, fields, diag)
+        return decide(methods, modes, forbidden, self.calibration, min_p)
+
     def rank(self, question: str, card_text: str, fields: dict, diag: str,
              forbidden: set[str] = frozenset(), min_p: float = 0.02) -> tuple[dict[str, float], str, dict]:
         """→ (метод → вероятность после маски правил, по убыванию; режим; вероятности режимов)."""
-        cache, logits = self._start(self._pass2(question, card_text, fields, diag))
-        pm = torch.softmax(logits[list(self.modes.values())], -1)
-        mode_p = {m: float(p) for m, p in zip(self.modes, pm)}
-        mode = max(mode_p, key=mode_p.get)
-        logits = self._feed(cache, [self.modes[mode], *self.space])
-        pmeth = torch.softmax(logits[list(self.methods.values())], -1)
-        probs = {m: float(p) for m, p in zip(self.methods, pmeth) if m not in forbidden}
-        total = sum(probs.values())
-        probs = {m: p / total for m, p in probs.items()} if total > 0 else {}
-        probs = {m: p for m, p in probs.items() if p >= min_p}
-        total = sum(probs.values())
-        probs = {m: p / total for m, p in sorted(probs.items(), key=lambda kv: -kv[1])}
-        return probs, mode, mode_p
+        d = self.decide(question, card_text, fields, diag, forbidden, min_p)
+        return d.probs, d.mode, d.mode_p
 
     @torch.no_grad()
     def explain(self, question: str, card_text: str, fields: dict, diag: str, probs: dict[str, float],
