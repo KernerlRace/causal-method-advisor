@@ -42,7 +42,8 @@ def evaluate_backend(backend, examples: list[dict], records: dict[str, dict]) ->
             s["parse.treatment+outcome (ru)"].append(roles_ok)
 
         best = _best(rec["gold"])
-        probs, mode = backend.rank(rec["structure"], rec["diagnostics"], rec["verdicts"], gold_fields)
+        ctx = {"question": e["question"], "card_text": e["card"]}
+        probs, mode = backend.rank(rec["structure"], rec["diagnostics"], rec["verdicts"], gold_fields, **ctx)
         ranked = list(probs)
         s["mode (gold parse)"].append(mode == rec["answer_mode"])
         if best:
@@ -52,7 +53,7 @@ def evaluate_backend(backend, examples: list[dict], records: dict[str, dict]) ->
             s["top1 rules-only"].append(bool(rules) and rules[0] in best)
             ok_parse = pred.get("type") == gold_fields["type"] and roles_ok
             if ok_parse and pred != gold_fields:
-                probs, mode = backend.rank(rec["structure"], rec["diagnostics"], rec["verdicts"], pred)
+                probs, mode = backend.rank(rec["structure"], rec["diagnostics"], rec["verdicts"], pred, **ctx)
             s["top1 end-to-end"].append(ok_parse and bool(probs) and next(iter(probs)) in best)
         else:  # отказ / не причинный вопрос: верно, если режим refuse
             s["refuse correct (gold parse)"].append(mode == "refuse")
