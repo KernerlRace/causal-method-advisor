@@ -1,0 +1,15 @@
+{
+  "mode end-to-end": "0.845  (n=84)",
+  "model explanation passes fact check": "0.000  (n=75)",
+  "not-causal questions refused": "0.600  (n=10)",
+  "parse.context (iv/mediator/threshold/rct/hidden)": "0.677  (n=93)",
+  "parse.exact": "0.559  (n=93)",
+  "parse.treatment+outcome": "0.871  (n=93)",
+  "parse.treatment+outcome (en)": "0.855  (n=69)",
+  "parse.treatment+outcome (ru)": "0.917  (n=24)",
+  "parse.type": "0.903  (n=93)",
+  "top1 (gold parse)": "1.000  (n=80)",
+  "top1 end-to-end": "0.750  (n=80)",
+  "top1 end-to-end (en)": "0.707  (n=58)",
+  "top1 end-to-end (ru)": "0.864  (n=22)"
+}
