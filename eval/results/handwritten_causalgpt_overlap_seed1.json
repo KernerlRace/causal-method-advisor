@@ -1,0 +1,15 @@
+{
+  "mode end-to-end": "0.833  (n=84)",
+  "mode end-to-end, model's mode token": "0.833  (n=84)",
+  "not-causal questions refused": "0.800  (n=10)",
+  "parse.context (iv/mediator/threshold/rct/hidden)": "0.742  (n=93)",
+  "parse.exact": "0.645  (n=93)",
+  "parse.treatment+outcome": "0.871  (n=93)",
+  "parse.treatment+outcome (en)": "0.841  (n=69)",
+  "parse.treatment+outcome (ru)": "0.958  (n=24)",
+  "parse.type": "0.882  (n=93)",
+  "top1 (gold parse)": "1.000  (n=80)",
+  "top1 end-to-end": "0.725  (n=80)",
+  "top1 end-to-end (en)": "0.672  (n=58)",
+  "top1 end-to-end (ru)": "0.864  (n=22)"
+}
