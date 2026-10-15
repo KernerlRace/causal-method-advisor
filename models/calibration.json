@@ -1,21 +1,21 @@
 {
-  "method_T": 0.086808681452177,
-  "mode_T": 1.257519028681252,
-  "min_top": 0.23,
-  "min_gap": 0.02,
+  "method_T": 0.08607645468514788,
+  "mode_T": 1.259168417583057,
+  "min_top": 0.25,
+  "min_gap": 0.01,
   "rule": "either",
-  "model_sha": "6dc9742a61017498",
-  "fitted_on": "val split, models/causalgpt.pt (export of checkpoints/sft_pretrained_best.pt)",
+  "model_sha": "d3b0518bc4973445",
+  "fitted_on": "val split, models/causalgpt.pt (export of checkpoints/sft_overlap_best.pt)",
   "metrics": {
-    "test_method_ece_raw": 0.30999699855019497,
-    "test_method_ece_scaled": 0.01546787627777951,
-    "test_mode_balanced": 0.9994347088750706,
-    "test_parse_ece_raw": 0.01059550513061732,
-    "test_parse_ece": 0.01059550513061732,
-    "test_parse_auroc": 0.9976874361593463
+    "test_method_ece_raw": 0.32576057356312005,
+    "test_method_ece_scaled": 0.017505395062563215,
+    "test_mode_balanced": 0.9986407358774733,
+    "test_parse_ece_raw": 0.0053096806727696575,
+    "test_parse_ece": 0.0053096806727696575,
+    "test_parse_auroc": 0.9891402758514409
   },
   "parse_kind": "raw",
   "parse_w": [],
   "parse_b": 0.0,
-  "min_parse": 0.9997987989061392
+  "min_parse": 0.9990425640184268
 }

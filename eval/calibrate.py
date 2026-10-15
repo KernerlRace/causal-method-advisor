@@ -415,7 +415,7 @@ def main() -> None:
     c.add_argument("--limit", type=int, default=None)
     c.add_argument("--parse", action="store_true", help="проход 1: собственный разбор модели и вероятности выборов")
     f = sub.add_parser("fit")
-    f.add_argument("--label", default="models/causalgpt.pt (export of checkpoints/sft_pretrained_best.pt)")
+    f.add_argument("--label", default="models/causalgpt.pt (export of checkpoints/sft_overlap_best.pt)")
     a = ap.parse_args()
     if a.cmd == "collect":
         from threadpoolctl import threadpool_limits

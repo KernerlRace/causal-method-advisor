@@ -1,31 +1,31 @@
 {
   "unidentifiable": {
     "n": 12,
-    "correct": 0.167,
+    "correct": 0.25,
     "parse_ok": 0.333,
     "modes": {
-      "refuse": 4,
+      "refuse": 3,
       "options": 1,
-      "recommend": 7,
+      "recommend": 8,
       "error": 0
     },
     "needs_controls_recommended": 0,
     "correct_gold_parse": 1.0,
-    "correct_token": 0.167,
+    "correct_token": 0.25,
     "modes_token": {
-      "refuse": 2,
+      "refuse": 3,
       "options": 1,
-      "recommend": 9
+      "recommend": 8
     },
     "correct_gold_parse_token": 1.0,
     "wrong_parses_caught": "8 of 8",
-    "right_parses_flagged": "0 of 4",
-    "correct_or_caught": 0.833
+    "right_parses_flagged": "1 of 4",
+    "correct_or_caught": 0.917
   },
   "no_controls": {
     "n": 12,
-    "correct": 0.917,
-    "parse_ok": 0.917,
+    "correct": 0.667,
+    "parse_ok": 0.667,
     "modes": {
       "refuse": 3,
       "options": 9,
@@ -34,92 +34,92 @@
     },
     "needs_controls_recommended": 0,
     "correct_gold_parse": 1.0,
-    "correct_token": 0.25,
+    "correct_token": 0.0,
     "modes_token": {
       "refuse": 3,
       "options": 0,
       "recommend": 9
     },
     "correct_gold_parse_token": 0.25,
-    "wrong_parses_caught": "1 of 1",
-    "right_parses_flagged": "8 of 11",
-    "correct_or_caught": 1.0
+    "wrong_parses_caught": "3 of 4",
+    "right_parses_flagged": "6 of 8",
+    "correct_or_caught": 0.917
   },
   "prediction": {
     "n": 12,
-    "correct": 0.667,
-    "parse_ok": 0.667,
+    "correct": 0.583,
+    "parse_ok": 0.583,
     "modes": {
       "refuse": 10,
-      "options": 0,
-      "recommend": 2,
+      "options": 1,
+      "recommend": 1,
       "error": 0
     },
     "needs_controls_recommended": 0,
     "correct_gold_parse": 1.0,
-    "correct_token": 0.667,
+    "correct_token": 0.583,
     "modes_token": {
       "refuse": 10,
       "options": 0,
       "recommend": 2
     },
     "correct_gold_parse_token": 1.0,
-    "wrong_parses_caught": "4 of 4",
-    "right_parses_flagged": "4 of 8",
+    "wrong_parses_caught": "5 of 5",
+    "right_parses_flagged": "4 of 7",
     "correct_or_caught": 1.0
   },
   "poor_overlap": {
     "n": 12,
-    "correct": 0.0,
-    "parse_ok": 0.0,
+    "correct": 0.083,
+    "parse_ok": 0.083,
     "modes": {
-      "refuse": 2,
-      "options": 3,
-      "recommend": 7,
+      "refuse": 1,
+      "options": 7,
+      "recommend": 4,
       "error": 0
     },
     "needs_controls_recommended": 0,
-    "correct_gold_parse": 0.083,
-    "correct_token": 0.0,
+    "correct_gold_parse": 1.0,
+    "correct_token": 0.083,
     "modes_token": {
-      "refuse": 2,
-      "options": 1,
-      "recommend": 9
+      "refuse": 1,
+      "options": 6,
+      "recommend": 5
     },
-    "correct_gold_parse_token": 0.0,
-    "wrong_parses_caught": "12 of 12",
-    "right_parses_flagged": "0 of 0",
+    "correct_gold_parse_token": 1.0,
+    "wrong_parses_caught": "11 of 11",
+    "right_parses_flagged": "1 of 1",
     "correct_or_caught": 1.0
   },
   "all": {
     "n": 48,
-    "correct": 0.438,
-    "parse_ok": 0.479,
+    "correct": 0.396,
+    "parse_ok": 0.417,
     "modes": {
-      "refuse": 19,
-      "options": 13,
-      "recommend": 16,
+      "refuse": 17,
+      "options": 18,
+      "recommend": 13,
       "error": 0
     },
     "needs_controls_recommended": 0,
-    "correct_gold_parse": 0.771,
-    "correct_token": 0.271,
+    "correct_gold_parse": 1.0,
+    "correct_token": 0.229,
     "modes_token": {
       "refuse": 17,
-      "options": 2,
-      "recommend": 29
+      "options": 7,
+      "recommend": 24
     },
-    "correct_gold_parse_token": 0.562,
-    "wrong_parses_caught": "25 of 25",
-    "right_parses_flagged": "12 of 23",
+    "correct_gold_parse_token": 0.812,
+    "wrong_parses_caught": "27 of 28",
+    "right_parses_flagged": "12 of 20",
     "correct_or_caught": 0.958
   },
   "parse_confidence": {
-    "parse confidence: AUROC, right vs wrong parse": "0.936",
-    "parse confidence: mean when parse right": "0.954  (n=23)",
-    "parse confidence: mean when parse wrong": "0.540  (n=25)",
-    "parse confidence: ECE (10 bins)": "0.259  (n=48)",
-    "asks to confirm: wrong parses": "1.000  (n=25)",
-    "asks to confirm: right parses (false alarms)": "0.522  (n=23)"
+    "parse confidence: AUROC, right vs wrong parse": "0.925",
+    "parse confidence: mean when parse right": "0.949  (n=20)",
+    "parse confidence: mean when parse wrong": "0.616  (n=28)",
+    "parse confidence: ECE (10 bins)": "0.351  (n=48)",
+    "asks to confirm: wrong parses": "0.964  (n=28)",
+    "asks to confirm: right parses (false alarms)": "0.600  (n=20)"
   }
 }
