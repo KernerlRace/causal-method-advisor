@@ -40,6 +40,10 @@ NUM = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?:e[+-]?\d+)?(?![\w%])")  # как 
 _LEAF = -1
 
 
+class ContextOverflow(ValueError):
+    """Профиль данных и вопрос не помещаются в контекст модели."""
+
+
 def card_columns(card_text: str) -> list[str]:
     return [m.group(1) for line in card_text.splitlines() if (m := CARD_COL.match(line))]
 
@@ -94,7 +98,7 @@ class Advisor:
     def _start(self, ids: list[int]) -> tuple[KVCache, torch.Tensor]:
         room = self.model.cfg.context - len(ids)
         if room < 64:
-            raise ValueError(f"the data profile and question take {len(ids)} tokens; the model's context is "
+            raise ContextOverflow(f"the data profile and question take {len(ids)} tokens; the model's context is "
                              f"{self.model.cfg.context}. Try a CSV with fewer columns or a shorter question.")
         cache = KVCache(self.model.cfg.n_layer)
         return cache, self._feed(cache, ids)
@@ -207,3 +211,56 @@ def _card_numbers() -> frozenset[str]:
         for t in (c.name, c.name_ru, *c.assumptions, *c.assumptions_ru):
             nums |= set(NUM.findall(t or ""))
     return frozenset(nums)
+
+
+def export(ckpt: Path, out: Path) -> None:
+    """Только веса модели в bf16 — для приложения: ~70 МБ вместо ~140 МБ fp32 (и без оптимизатора)."""
+    model, _ = GPT.load(ckpt, "cpu")
+    state, done = {}, {}
+    for k, v in model.state_dict().items():  # общая матрица входа и выхода сохраняется один раз
+        if v.data_ptr() not in done:
+            done[v.data_ptr()] = v.to(torch.bfloat16) if v.is_floating_point() else v
+        state[k] = done[v.data_ptr()]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    torch.save({"config": model.cfg.__dict__ | {"attention": "manual", "dropout": 0.0}, "model": state,
+                "source": str(ckpt)}, out)
+
+
+def main() -> None:
+    import argparse
+    import warnings
+
+    ap = argparse.ArgumentParser(description="""
+  .venv/Scripts/python.exe -m model.decode export checkpoints/sft_pretrained_best.pt   # -> models/causalgpt.pt
+  .venv/Scripts/python.exe -m model.decode ask data/demo/smoking.csv "Did Prop 99 reduce cigarette sales?"
+""", formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    e = sub.add_parser("export")
+    e.add_argument("ckpt", type=Path)
+    e.add_argument("--out", type=Path, default=Path(__file__).resolve().parent.parent / "models" / "causalgpt.pt")
+    q = sub.add_parser("ask")
+    q.add_argument("csv", type=Path)
+    q.add_argument("question")
+    q.add_argument("--ckpt", type=Path, default=None)
+    args = ap.parse_args()
+
+    if args.cmd == "export":
+        export(args.ckpt, args.out)
+        print(f"{args.out}: {args.out.stat().st_size / 2**20:.0f} MB")
+        return
+    from advisor.pipeline import advise, load_backend
+    from advisor.profiler import load_csv
+
+    warnings.filterwarnings("ignore")
+    backend = load_backend("causalgpt", **({"ckpt": args.ckpt} if args.ckpt else {}))
+    a = advise(load_csv(args.csv), args.question, backend)
+    print("parse:  ", parse_text(a.fields))
+    print("mode:   ", a.mode)
+    print("methods:", ", ".join(f"{m} {p:.0%}" for m, p in list(a.methods.items())[:5]) or "-")
+    print(f"\n{a.explanation}\n\n(explanation: {a.explanation_source})")
+    for note in a.notes:
+        print("note:", note)
+
+
+if __name__ == "__main__":
+    main()

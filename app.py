@@ -11,7 +11,7 @@ import pandas as pd
 import streamlit as st
 
 from advisor.knowledge import load_cards
-from advisor.pipeline import AdviceError, BaselineBackend, MODELS_DIR, advise
+from advisor.pipeline import MODELS_DIR, AdviceError, advise, load_backend
 from advisor.profiler import load_csv
 
 ROOT = Path(__file__).resolve().parent
@@ -26,9 +26,21 @@ TYPE_LABEL = {"effect": "effect of X on Y", "heterogeneity": "for whom does X wo
 st.set_page_config(page_title="Causal Method Advisor", page_icon="🧭", layout="wide")
 
 
+BACKENDS = {"baseline": "baseline (classical ML)", "causalgpt": "CausalGPT-mini (our transformer)"}
+
+
+def neural_available() -> bool:
+    """Нейросеть — только локально: на демо в облаке нет PyTorch и весов модели."""
+    try:
+        import torch  # noqa: F401
+    except ImportError:
+        return False
+    return (MODELS_DIR / "causalgpt.pt").exists()
+
+
 @st.cache_resource
-def get_backend():
-    return BaselineBackend()
+def get_backend(name: str):
+    return load_backend(name)
 
 
 @st.cache_data
@@ -47,8 +59,11 @@ with st.sidebar:
     st.header("🧭 Causal Method Advisor")
     st.write("Upload a CSV and ask a causal question. The advisor profiles the data, runs assumption "
              "checks and recommends a causal inference method, or several options if the question is hard.")
-    st.selectbox("Model", ["baseline (classical ML)", "CausalGPT-mini (coming soon)"], index=0, disabled=True,
-                 help="The from-scratch transformer replaces the baseline after training (stage 8).")
+    available = ["causalgpt", "baseline"] if neural_available() else ["baseline"]
+    backend_name = st.selectbox("Model", available, format_func=BACKENDS.get,
+                                help="CausalGPT-mini is a 34M-parameter transformer written and trained from "
+                                     "scratch in this project. It needs PyTorch and models/causalgpt.pt, so the "
+                                     "online demo runs the classical baseline.")
     st.caption("Sources: Molak, *Causal Inference and Discovery in Python*; "
                "Facure, *Causal Inference for the Brave and True*.")
 
@@ -87,7 +102,7 @@ question = st.text_area("Your question (English or Russian)", value=default_q, h
                         key=f"q-{source}-{default_q[:20]}")
 run = st.button("Advise", type="primary")
 
-state_key = f"{source}|{question}|{df.shape}"
+state_key = f"{source}|{question}|{df.shape}|{backend_name}"
 if run:
     st.session_state.pop("fields_override", None)
     st.session_state["state_key"] = state_key
@@ -96,7 +111,7 @@ if st.session_state.get("state_key") != state_key:
 
 try:
     with st.spinner("Profiling the data and running checks…"):
-        advice = advise(df, question, get_backend(), fields=st.session_state.get("fields_override"))
+        advice = advise(df, question, get_backend(backend_name), fields=st.session_state.get("fields_override"))
 except AdviceError as e:
     st.error(str(e))
     st.stop()
@@ -142,6 +157,8 @@ st.markdown(f":{color}-background[**{label}**]")
 left, right = st.columns([3, 2])
 with left:
     st.markdown(advice.explanation.replace("\n", "  \n"))
+    if advice.explanation_source == "model":
+        st.caption("Written by the model; every number in it was checked against the data and diagnostics.")
     for note in advice.notes:
         st.warning(note)
 with right:
