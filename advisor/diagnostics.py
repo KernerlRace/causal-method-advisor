@@ -338,6 +338,9 @@ def nonlinearity(df: pd.DataFrame, card: DataCard, query: CausalQuery) -> DiagRe
     covs = covariate_columns(card, query)
     if not covs:
         return _na("nonlinearity", "no covariates")
+    y_kind = card.column(query.outcome).kind
+    if y_kind not in ("numeric", "integer", "binary"):  # разбор (или правка ролей) мог назвать исходом категорию
+        return _na("nonlinearity", f"the outcome '{query.outcome}' is not numeric")
     data = df.sample(n=min(len(df), NONLIN_SUBSAMPLE), random_state=0)
     kind = card.column(query.treatment).kind
     if kind == "binary":
@@ -348,7 +351,7 @@ def nonlinearity(df: pd.DataFrame, card: DataCard, query: CausalQuery) -> DiagRe
         t = pd.get_dummies(data[query.treatment].astype(str), prefix="__t", drop_first=True).astype(float)
     X = pd.concat([_design_matrix(data, covs), t], axis=1)
     X = X.fillna(X.median()).fillna(0.0)
-    y = data[query.outcome].astype(float).values
+    y = (to_bool(data[query.outcome]) if y_kind == "binary" else data[query.outcome]).astype(float).values
     r2_lin = float(np.mean(cross_val_score(LinearRegression(), X.values, y, cv=3, scoring="r2")))
     gbm = HistGradientBoostingRegressor(max_iter=100, learning_rate=0.15)
     r2_gbm = float(np.mean(cross_val_score(gbm, X.values, y, cv=3, scoring="r2")))
