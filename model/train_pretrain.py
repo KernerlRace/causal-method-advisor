@@ -25,6 +25,7 @@ import numpy as np
 import torch
 
 from model.data import TOKENIZER, TOKENS_DIR, TokenStream
+from model.limits import GpuDuty, limit_cpu
 from model.tokenizer import BPETokenizer
 from model.transformer import GPT, PRESETS, GPTConfig, make_optimizer
 
@@ -84,12 +85,15 @@ def main() -> None:
     ap.add_argument("--overfit", action="store_true", help="учиться на одном и том же батче: проверка, что модель может выучить что угодно")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--gpu-duty", type=float, default=0.65, help="доля времени, когда GPU считает: потолок нагрузки (фон — ещё ~25%%)")
     args = ap.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
     amp, amp_dtype = autocast_for(device)
+    limit_cpu()
+    duty = GpuDuty(device, args.gpu_duty)
     scaler = torch.amp.GradScaler("cuda", enabled=amp_dtype == torch.float16)
 
     ckpt_path = ROOT / "checkpoints" / f"{args.run}.pt"
@@ -141,6 +145,7 @@ def main() -> None:
                 _, loss = model(x, y)
             scaler.scale(loss / args.accum).backward()
             loss_sum += loss.detach() / args.accum
+            duty.step()
         scaler.unscale_(opt)
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
         scaler.step(opt)
