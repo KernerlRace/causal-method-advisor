@@ -13,12 +13,14 @@ If the question is ambiguous or the data cannot answer it, it says so and offers
 
 The goal is a small language model written and trained from scratch (no pretrained weights, no Hugging Face)
 that understands the question and explains the choice, while deterministic code does the statistics.
-The model exists and trains; the web demo still runs on a classical-ML baseline until the model is wired in.
+The model is trained and wired into the app; the online demo runs the classical-ML baseline, because the free
+hosting has no PyTorch — run the app locally to talk to the model.
 
-> **Status:** the non-neural half is done — knowledge base, diagnostics, synthetic data, baseline and web UI.
-> The model's own BPE tokenizer and the 34M-parameter GPT-style decoder are written from scratch; a first 12-minute
-> run already beat the baseline on held-out questions, and the model is now pretrained on an open corpus of Wikipedia
-> articles and a causal-inference handbook. Next: fine-tuning on the task with constrained decoding.
+> **Status:** CausalGPT-mini — our own BPE tokenizer and a 34M-parameter GPT-style decoder, pretrained on Wikipedia
+> articles and a causal-inference handbook, then fine-tuned on the task — now answers through the full pipeline with
+> constrained decoding. On 93 hand-written questions it picks the right method end to end 79% of the time against 60%
+> for the classical baseline, and writes its own explanations, checked number by number against the data.
+> Next: calibrated confidence, the "options" mode and honest refusals.
 
 <img src="docs/img/question.png" alt="Asking about California's Proposition 99 on the demo dataset">
 
@@ -42,9 +44,18 @@ flowchart TD
     G -->|not identifiable| J[Honest refusal + what data to collect]
 ```
 
-The parser and the ranker are pluggable backends: today a classical-ML baseline, later the from-scratch model.
+The parser and the ranker are pluggable backends: the classical-ML baseline or the from-scratch model.
 Statistics are always computed by code, never by the model — small language models make unpredictable
-mistakes in causal reasoning, so the model only reads the question and explains.
+mistakes in causal reasoning, so the model only reads the question, ranks the methods and explains.
+
+The model runs in two passes. Pass 1 reads the data profile and the question and writes the parse under
+**constrained decoding**: every allowed continuation (`treatment=` + each column of *this* CSV, `randomized=yes`, ...,
+end of parse) is tokenised into a prefix tree, and each step picks only among the children of the current node, so the
+model cannot name a column the data does not have. Pass 2 sees the diagnostics and the rule verdicts; the answer mode
+and the method probabilities are read from the softmax over the special `<MODE:*>` and `<M:*>` tokens, rules remove
+forbidden methods, and the model writes the explanation. The explanation is shown only if every number and percentage
+in it appears in the model's input and it names the top method; otherwise a template explanation built from the same
+facts is used, and the UI says so.
 
 ## What is inside
 
@@ -63,6 +74,10 @@ mistakes in causal reasoning, so the model only reads the question and explains.
 | `model/tokenizer.py` | byte-level BPE written from scratch: 16,384 tokens learned on the open corpus and the task data, 37 of them special (markup, question types, answer modes, one token per method); any string round-trips losslessly, and user text cannot smuggle in special tokens |
 | `model/transformer.py` | GPT-style decoder written from scratch: pre-norm blocks with RMSNorm, rotary position embeddings, SwiGLU, hand-written causal attention, tied embeddings, KV cache for generation — 34M parameters with the 16k vocabulary |
 | `model/data.py`, `train_pretrain.py`, `sample.py` | texts → token stream on disk → training loop (AdamW, warmup + cosine, bf16, gradient accumulation, resumable checkpoints) → sampling |
+| `model/sft.py`, `train_sft.py` | fine-tuning format and loop: loss only on the parse and the answer, a soft label (the gold weights of all suitable methods) at the position of the first method, logits computed only where there is a target |
+| `model/decode.py` | two-pass inference with constrained decoding, method probabilities from the softmax, generated explanations with a fact check; `ask` and `export` commands |
+| `model/limits.py` | load cap for training and evaluation: short pauses keep the GPU busy at most ~65% of the time, PyTorch threads capped at 75% of the cores |
+| `eval/handwritten_questions.jsonl` | 93 questions written by hand outside the template grammar, with gold parses and methods; `eval/handwritten.py` scores any backend on them |
 | `datagen/corpus.py` | pretraining corpus: Wikipedia EN/RU articles on statistics, econometrics, causal inference and ML (plus everyday domains), Facure's handbook, our method cards and explanations; resumable polite fetching, cleaning, deduplication, document-level train/val split |
 | `data/demo/` | 12 demo datasets with questions, including the real Prop 99 data |
 
@@ -134,6 +149,69 @@ style of our explanations, which it has learned best. That is about what 34M par
 question for the next stage is whether this language prior helps on questions written by people, so fine-tuning
 will be compared with and without it.
 
+### Fine-tuning on the task (stage 8)
+
+The pretrained model and a randomly initialised copy were fine-tuned identically for one epoch on the 90k training
+examples (22 minutes each under the load cap; learning rate 3e-4 from the pretrained weights, 1e-3 from scratch):
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/sft_loss_dark.png">
+  <img src="docs/img/sft_loss.png" alt="Validation loss on the answer: 0.036 when starting from the pretrained model, 0.062 from scratch">
+</picture>
+
+**Template test** (4,970 held-out questions, split by scenario; `eval/results/*_test.json`):
+
+| Metric | Baseline | From scratch | Pretrained |
+|---|---|---|---|
+| Treatment and outcome found correctly | 85.4% | 98.5% | 98.6% |
+| Whole parse exactly right | 81.6% | 96.9% | 97.1% |
+| Question type / on unseen templates | 98.2% / 78.9% | 98.4% / 81.5% | 98.5% / 82.7% |
+| Best method, given the true parse (top-1) | 99.9% | 99.5% | 99.2% |
+| Best method end to end (top-1) | 83.6% | 97.8% | 98.1% |
+
+**Hand-written questions** (93 questions, 69 English and 24 Russian, about the 12 demo datasets;
+`eval/results/handwritten_*.json`). They were written outside the template grammar — synonyms instead of column
+names (*"free delivery"* for `free_shipping`), informal text and typos, long context, Russian text with English column
+names — with the gold answer taken from the scenario each dataset was generated from:
+
+| Metric | Baseline | From scratch | Pretrained |
+|---|---|---|---|
+| Treatment and outcome found correctly | 65.6% | 83.9% | **86.0%** |
+| Best method end to end (top-1, 80 questions) | 60.0% | 72.5% | **78.8%** |
+| Answer mode end to end | 69.0% | 79.8% | 83.3% |
+| Question type | **94.6%** | 84.9% | 87.1% |
+| Context: randomised, hidden confounder, instrument, mediator, threshold | **80.6%** | 75.3% | 78.5% |
+| Model's own explanation passes the fact check | — | 14.3% | **98.6%** |
+
+The pretrained model beats the baseline by 18.8 points on the end-to-end method (paired bootstrap 95% CI +7.5 to +30.0;
+20 questions only the model gets right, 5 only the baseline). Its gain is in linking the words of a question to a
+column; given the correct parse, both pick the right method on all 80 questions. With 80 questions, the 6-point gap
+between pretrained and from-scratch is within noise (CI −3.8 to +16.2). Pretraining shows where language matters: the
+explanations. Both models learned the format, but the one trained from scratch fills it with numbers that are not in
+the data, for example the pre-trend drift of the clinic panel as *108% of the outcome's SD* where the diagnostics say
+1.72. With only 5% of the training examples the gap widens: validation loss 0.055 vs 0.211, and 71.6% vs 0%
+of explanations pass the check.
+
+An explanation written by the model for *"Only one of our clinics switched to the new drug, the rest kept the old
+treatment. ... Did the new drug actually shorten recovery?"* — every number comes from the diagnostics:
+
+> Several methods fit this data about equally well: Synthetic difference-in-differences and Synthetic control.
+> Before the treatment the gap between treated and control units drifted by 8.27 (172% of the outcome's SD,
+> p=4.17e-07), so the trends are not parallel. A synthetic control reproduces the treated path before the treatment
+> well (R²=0.971). There is 1 treated unit and 38 control units, 24 periods before and 8 after the treatment. ...
+
+What does not work yet. Context said differently from the templates — *"randomly assigned the flag"*,
+*"a hard cutoff on appraisal_score"* — is missed, although the same fields are almost always right on template
+questions; and the question type is worse than the baseline's on these questions (*"dose-response effect"* is read as
+heterogeneity, *"causally related"* as a prediction question). On the Prop 99 demo question the pretrained model names
+`age15to24` as the treatment, which the baseline gets right: the decoder picks a column token by token, and *"age"*
+looked likely. Scoring each column by the probability of its whole name fixes that question but does worse overall
+(80 → 78 of 93 roles for the pretrained model, 78 → 72 from scratch), because summed log-probabilities favour short
+names, so token-by-token choice stays; the roles can be corrected in the UI. Fine-tuning puts the loss only on the answer, so the
+model no longer learns to model the questions themselves: the type on unseen templates fell from 92.0% in the
+stage 6 run to 82.7%. These 93 questions were written during development, not by outside users, so the next fixes
+(an auxiliary loss on the question, a richer grammar for context) must be measured on questions from other people.
+
 ## Quick start
 
 Windows with an NVIDIA GPU, using [uv](https://docs.astral.sh/uv/):
@@ -176,6 +254,20 @@ Other entry points:
 .venv/Scripts/python.exe -m pytest -q tests
 ```
 
+Fine-tune, evaluate and talk to the model (needs `checkpoints/pretrain_best.pt` from the pretraining step):
+
+```bash
+.venv/Scripts/python.exe -m model.sft                       # token cache of the task examples
+.venv/Scripts/python.exe -m model.train_sft --init checkpoints/pretrain_best.pt --run sft_pretrained
+.venv/Scripts/python.exe -m model.train_sft --init scratch --lr 1e-3 --run sft_scratch
+.venv/Scripts/python.exe -m eval.run_eval --backend causalgpt --ckpt checkpoints/sft_pretrained_best.pt --name causalgpt_pretrained
+.venv/Scripts/python.exe -m eval.handwritten --backend causalgpt --ckpt checkpoints/sft_pretrained_best.pt --name causalgpt_pretrained --explain
+.venv/Scripts/python.exe -m eval.handwritten --backend baseline
+.venv/Scripts/python.exe -m model.decode export checkpoints/sft_pretrained_best.pt   # -> models/causalgpt.pt, 65 MB
+.venv/Scripts/python.exe -m model.decode ask data/demo/smoking.csv "Did Prop 99 reduce cigarette sales?"
+.venv/Scripts/streamlit run app.py                          # the model appears in the sidebar
+```
+
 ## Roadmap
 
 - [x] Method cards, profiler, diagnostics, rule engine
@@ -185,7 +277,8 @@ Other entry points:
 - [x] Byte-level BPE tokenizer from scratch
 - [x] GPT-style decoder from scratch (~30M parameters: attention, RoPE, RMSNorm written by hand)
 - [x] Pretraining on an open corpus (Wikipedia EN/RU, Facure's handbook, 23M tokens)
-- [ ] Fine-tuning on the task, constrained decoding, two-pass inference — must beat the baseline
+- [x] Fine-tuning on the task, constrained decoding, two-pass inference — beats the baseline on hand-written questions
+- [ ] Questions written by other people as the live test set
 - [ ] Calibrated confidence, "options" mode and honest refusals
 - [ ] Evaluation against the baselines, demo scenarios
 
