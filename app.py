@@ -22,6 +22,9 @@ MODE_LABEL = {"recommend": ("Recommendation", "green"), "options": ("Several goo
 STATUS_ICON = {"allowed": "✅", "warning": "⚠️", "forbidden": "⛔"}
 TYPE_LABEL = {"effect": "effect of X on Y", "heterogeneity": "for whom does X work",
               "discovery": "what causes what", "not_causal": "prediction / description (not causal)"}
+TYPE_DOUBT = {"effect": "you are asking about the average effect of the treatment",
+              "heterogeneity": "you are asking for whom the effect differs", "discovery": "you are asking what causes what",
+              "not_causal": "you are asking for a prediction rather than a causal effect"}
 
 st.set_page_config(page_title="Causal Method Advisor", page_icon="🧭", layout="wide")
 
@@ -41,6 +44,15 @@ def neural_available() -> bool:
 @st.cache_resource
 def get_backend(name: str):
     return load_backend(name)
+
+
+def pct(p: float) -> str:
+    """Процент с таким числом знаков, чтобы 99.95% не округлялось до 100%: на знакомых вопросах разбор уверен до 1e-4."""
+    for digits in range(5):
+        s = f"{p:.{digits}%}"
+        if p >= 1.0 or float(s[:-1]) < 100:
+            return s
+    return f"{p:.4%}"
 
 
 @st.cache_data
@@ -121,13 +133,31 @@ except AdviceError as e:
 st.subheader("1. How I understood the question")
 cols = ["—"] + list(df.columns)
 f = advice.fields
+role_key = "target" if f.get("type") == "not_causal" else "outcome"
+if advice.confirm:
+    doubt = {"type": TYPE_DOUBT.get(f.get("type"), "what kind of question this is"),
+             "treatment": f"the treatment is `{f.get('treatment')}`", "outcome": f"the outcome is `{f.get('outcome')}`",
+             "target": f"the column to predict is `{f.get('target')}`"}[advice.confirm]
+    st.warning(f"**I'm not sure {doubt}.** The model gives this reading of the question a probability of "
+               f"{pct(advice.parse_confidence)}, lower than on 99% of familiar questions. Please check the roles below: "
+               "correct them, or press *Re-run with these roles* to confirm. The advice below assumes this reading.")
+elif advice.parse_confidence is not None:
+    st.caption(f"The model's probability for this reading of the question: {pct(advice.parse_confidence)}. "
+               "A high number does not prove the roles are right, so check them.")
+
+
+def doubt_label(text: str, *keys: str) -> str:
+    return f"{text} — please check" if advice.confirm in keys else text
+
+
 with st.form("roles"):
     c1, c2, c3 = st.columns(3)
-    qtype = c1.selectbox("Question type", list(TYPE_LABEL), index=list(TYPE_LABEL).index(f.get("type", "effect")),
-                         format_func=lambda t: TYPE_LABEL[t])
-    role_key = "target" if f.get("type") == "not_causal" else "outcome"
-    treatment = c2.selectbox("Treatment (X)", cols, index=cols.index(f["treatment"]) if f.get("treatment") in cols else 0)
-    outcome = c3.selectbox("Outcome (Y)", cols, index=cols.index(f[role_key]) if f.get(role_key) in cols else 0)
+    qtype = c1.selectbox(doubt_label("Question type", "type"), list(TYPE_LABEL),
+                         index=list(TYPE_LABEL).index(f.get("type", "effect")), format_func=lambda t: TYPE_LABEL[t])
+    treatment = c2.selectbox(doubt_label("Treatment (X)", "treatment"), cols,
+                             index=cols.index(f["treatment"]) if f.get("treatment") in cols else 0)
+    outcome = c3.selectbox(doubt_label("Outcome (Y)", "outcome", "target"), cols,
+                           index=cols.index(f[role_key]) if f.get(role_key) in cols else 0)
     c4, c5, c6 = st.columns(3)
     instrument = c4.selectbox("Instrument", cols, index=cols.index(f["instrument"]) if f.get("instrument") in cols else 0)
     mediator = c5.selectbox("Mediator", cols, index=cols.index(f["mediator"]) if f.get("mediator") in cols else 0)
@@ -153,7 +183,8 @@ with st.form("roles"):
 
 label, color = MODE_LABEL[advice.mode]
 st.subheader("2. Advice")
-st.markdown(f":{color}-background[**{label}**]")
+badge = "  :orange-background[provisional: confirm the roles in step 1]" if advice.confirm else ""
+st.markdown(f":{color}-background[**{label}**]{badge}")
 left, right = st.columns([3, 2])
 with left:
     st.markdown(advice.explanation.replace("\n", "  \n"))

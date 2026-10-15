@@ -16,7 +16,13 @@ p_T = softmax(z / T). Цель при подборе — равномерное 
 правил: если модель ставила на метод, который правила запретили, она неверно поняла данные, и
 оставшееся распределение не должно выглядеть уверенным.
 
-Пороги и температуры подбираются на validation (eval/calibrate.py) и лежат в models/calibration.json.
+Уверенность в разборе (проход 1). Проход 2 верит разбору: при неверном воздействии он уверенно отвечает
+на другой вопрос. Поэтому отдельно оценивается вероятность события «тип вопроса и роли (воздействие и исход
+или целевая колонка) верны» — логистическая регрессия на log-вероятностях выборов модели в проходе 1
+(parse_features). Ниже порога min_parse советник просит подтвердить самую неуверенную часть разбора; режим
+ответа она не меняет: «варианты» значат «подходят несколько методов», а не «я мог неверно понять вопрос».
+
+Пороги, температуры и коэффициенты подбираются на validation (eval/calibrate.py) и лежат в models/calibration.json.
 """
 from __future__ import annotations
 
@@ -32,6 +38,11 @@ CALIBRATION = MODELS_DIR / "calibration.json"
 MODES = ("recommend", "options", "refuse")
 REFUSAL_METHODS = frozenset({"sensitivity_analysis"})  # оценивает границы эффекта, а не сам эффект
 RULES = ("token", "confidence", "either")
+# роли, которые должен угадать разбор: без них ответ — про другой вопрос
+ROLES = {"effect": ("treatment", "outcome"), "heterogeneity": ("treatment", "outcome"),
+         "not_causal": ("target",), "discovery": ()}
+PARSE_KINDS = ("joint", "joint_loglog", "parts_loglog")  # подбираются на val; raw — без подбора
+EPS = 1e-9
 
 
 @dataclass
@@ -44,6 +55,11 @@ class Calibration:
     model_sha: str = ""    # отпечаток файла модели, для которой подобрана калибровка
     fitted_on: str = ""
     metrics: dict = field(default_factory=dict)
+    # уверенность в разборе (проход 1): логистическая регрессия на признаках parse_features
+    parse_kind: str = ""   # пусто — без калибровки разбора
+    parse_w: list[float] = field(default_factory=list)
+    parse_b: float = 0.0
+    min_parse: float = 0.0  # ниже — просим подтвердить роли
 
     @classmethod
     def load(cls, path: Path = CALIBRATION, model: Path | None = None) -> "Calibration":
@@ -70,6 +86,48 @@ class Decision:
     gap: float | None          # она же минус та же величина у второго метода
     token_mode: str            # что сказал токен <MODE:*>
     mode_p: dict[str, float]   # калиброванные вероятности режимов
+
+
+@dataclass
+class FieldScore:
+    """Log-вероятности одного поля разбора: внутри разрешённых вариантов (lp) и в полном softmax (lp_full)."""
+    key_lp: float         # ключ среди разрешённых на этом шаге ключей (обязательное поле — 0)
+    key_lp_full: float
+    value_lp: float       # значение среди вариантов: колонок этого CSV, yes/no
+    value_lp_full: float  # выбранные токены значения; разница с value_lp — масса вне колонок этого CSV
+    n: int                # сколько было вариантов
+
+
+@dataclass
+class ParseScores:
+    """Log-вероятности выборов прохода 1 (model/decode.py, Advisor.parse)."""
+    type: str
+    type_logits: dict[str, float]
+    type_lp: float        # среди <T:*>
+    type_lp_full: float
+    fields: dict[str, FieldScore] = field(default_factory=dict)
+    end_lp: float = 0.0   # закрыть разбор <DIAG> среди разрешённых ключей
+    end_lp_full: float = 0.0
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ParseScores":
+        return cls(**{**d, "fields": {k: FieldScore(**v) for k, v in d["fields"].items()}})
+
+    def parts(self) -> dict[str, float]:
+        """Log-вероятности типа и каждой роли (ключ + значение) внутри разрешённых вариантов."""
+        out = {"type": self.type_lp}
+        for k in ROLES.get(self.type, ()):
+            if k in self.fields:
+                out[k] = self.fields[k].key_lp + self.fields[k].value_lp
+        return out
+
+    def weakest(self) -> str:
+        """Самая неуверенная часть разбора: type, treatment, outcome или target."""
+        parts = self.parts()
+        return min(parts, key=parts.get)
 
 
 def file_sha(path: Path) -> str:
@@ -129,6 +187,43 @@ def decide(method_logits: dict[str, float], mode_logits: dict[str, float], forbi
     return Decision(mode, probs, p1 if top else None, gap if top else None, token, mode_p)
 
 
+# ---------- уверенность в разборе (проход 1) ----------
+
+def parse_features(s: ParseScores, kind: str) -> np.ndarray:
+    """Признаки разбора для калибровки. a — тип, b — роли (внутри разрешённых вариантов), c — log массы, которую
+    модель отдала токенам колонок этого CSV, когда выбирала роли (мала, если модель хотела колонку, которой нет).
+    loglog — log(−log p): разводит и уверенные выборы (1 − p ~ 1e-7 против 1e-3), и неуверенные."""
+    a = s.type_lp
+    roles = [s.fields[k] for k in ROLES.get(s.type, ()) if k in s.fields]
+    b = sum(f.key_lp + f.value_lp for f in roles)
+    c = sum(min(f.value_lp_full - f.value_lp, 0.0) for f in roles)
+
+    def ll(v: float) -> float:
+        return float(np.log(-min(v, 0.0) + EPS))
+
+    if kind == "joint":
+        return np.array([a + b])
+    if kind == "joint_loglog":
+        return np.array([ll(a + b)])
+    if kind == "parts_loglog":
+        return np.array([ll(a), ll(b), ll(c)])
+    raise ValueError(f"unknown parse feature set {kind!r}")
+
+
+def sigmoid(x):
+    return 1.0 / (1.0 + np.exp(-np.asarray(x, dtype=np.float64)))
+
+
+def parse_confidence(s: ParseScores | None, cal: Calibration) -> float | None:
+    """Вероятность, что тип вопроса и роли разобраны верно; None — без калибровки разбора. raw — собственная
+    вероятность модели (на val почти нет неверных разборов, подбирать не на чем), иначе — логистическая регрессия."""
+    if s is None or not cal.parse_kind:
+        return None
+    if cal.parse_kind == "raw":
+        return float(np.exp(sum(s.parts().values())))
+    return float(sigmoid(parse_features(s, cal.parse_kind) @ np.asarray(cal.parse_w) + cal.parse_b))
+
+
 # ---------- калибровка: подбор и проверка ----------
 
 def best_set_target(gold: dict[str, float], names: list[str]) -> np.ndarray:
@@ -165,6 +260,42 @@ def fit_temperature(logits: np.ndarray, target: np.ndarray, lo: float = 0.02, hi
             d = a + g * (b - a)
             fd = nll(logits, target, np.exp(d))
     return float(np.exp((a + b) / 2))
+
+
+def fit_logistic(X: np.ndarray, y: np.ndarray, l2: float = 1.0, steps: int = 100) -> tuple[np.ndarray, float]:
+    """Логистическая регрессия методом Ньютона: минимум суммы log-loss + l2/2·|w|² (свободный член без штрафа).
+    Штраф нужен: верных разборов на validation ~98%, и при почти разделимых классах веса иначе уходят в бесконечность."""
+    X = np.column_stack([np.asarray(X, float), np.ones(len(X))])
+    y = np.asarray(y, float)
+    w = np.zeros(X.shape[1])
+    reg = np.full(X.shape[1], l2)
+    reg[-1] = 0.0
+    for _ in range(steps):
+        p = sigmoid(X @ w)
+        grad = X.T @ (p - y) + reg * w
+        hess = (X * (p * (1 - p))[:, None]).T @ X + np.diag(reg) + 1e-9 * np.eye(len(w))
+        step = np.linalg.solve(hess, grad)
+        w -= step
+        if np.abs(step).max() < 1e-10:
+            break
+    return w[:-1], float(w[-1])
+
+
+def log_loss(p: np.ndarray, y: np.ndarray) -> float:
+    p = np.clip(np.asarray(p, float), 1e-12, 1 - 1e-12)
+    y = np.asarray(y, float)
+    return float(-(y * np.log(p) + (1 - y) * np.log(1 - p)).mean())
+
+
+def auroc(score: np.ndarray, y: np.ndarray) -> float | None:
+    """Площадь под ROC: вероятность, что у случайного верного разбора уверенность выше, чем у неверного
+    (равенства — пополам). None, если один из классов пуст."""
+    score, y = np.asarray(score, float), np.asarray(y, bool)
+    pos, neg = score[y], score[~y]
+    if not len(pos) or not len(neg):
+        return None
+    d = pos[:, None] - neg[None, :]  # все пары: неверных разборов мало, матрица небольшая
+    return float((d > 0).mean() + 0.5 * (d == 0).mean())
 
 
 def reliability(conf: np.ndarray, correct: np.ndarray, bins: int = 15) -> tuple[float, list[dict]]:
