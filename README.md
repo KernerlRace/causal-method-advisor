@@ -225,6 +225,10 @@ stage 6 run to 82.7%. These 93 questions were written during development, not by
 
 ### Confidence, options and refusals (stage 9)
 
+<sub>The numbers in this section and in part 2 were measured on the stage 9 model. The model retrained in part 3 has its own
+calibration (method temperature 0.086, test calibration error 0.326 → 0.018, parse threshold 0.99904); its results are in
+part 3.</sub>
+
 The method probabilities were trained on soft labels (the gold weights of every suitable method), so they say how well
 each method fits, not how likely the top one is to be right: for *SDID 1.0, synthetic control 0.4, DiD 0.1* the target is
 two thirds on SDID, although the top method is right 99.1% of the time. A single temperature fitted on the validation
