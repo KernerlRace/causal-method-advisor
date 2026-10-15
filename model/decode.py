@@ -1,10 +1,15 @@
 """Инференс советника (этап 8): два прохода модели с ограниченным декодированием.
 
 Проход 1 — разбор вопроса. Тип вопроса — выбор среди <T:*>. Дальше поля по одному: ключ поля
-(treatment, outcome, …, или конец разбора <DIAG>) — по вероятности его слова, значение — по вероятности
-всей последовательности токенов каждого разрешённого варианта: колонки из этого CSV, yes/no. Жадный
-выбор по первому токену ошибается: у `age15to24` вероятное начало «age» и невероятное продолжение.
-Модель физически не может назвать колонку, которой нет в данных, повторить поле или сломать формат.
+(treatment, outcome, …, или конец разбора <DIAG>) — по вероятности его слова, значение — по токенам:
+на каждом шаге argmax только среди токенов, которые продолжают хотя бы один разрешённый вариант
+(колонки этого CSV, для порога — только числовые; yes/no). Модель физически не может назвать колонку,
+которой нет в данных, повторить поле или сломать формат.
+
+Сравнивали и выбор значения по вероятности всей последовательности токенов (и её среднему на токен):
+на 93 вопросах, написанных вручную, он хуже жадного — 78 и 80 из 93 верных ролей против 80 у модели
+с претрейном, 72 и 72 против 78 у модели с нуля: сумма log-вероятностей тянет к коротким именам
+(`state`, `cigsale`). Варианты оставлены в _choose для экспериментов.
 
 Проход 2 — после диагностик. Режим ответа — argmax по <MODE:*>. Вероятности методов — softmax по
 токенам <M:*> в позиции первого метода (её учили мягкой меткой), затем правила убирают запрещённые
@@ -35,7 +40,7 @@ GRAMMAR = {
     "discovery": ((), ("hidden",)),
     "not_causal": (("target",), ("target",)),
 }
-CARD_COL = re.compile(r"^col (.+) (?:binary|integer|numeric|categorical|datetime|text|constant) uniq=")
+CARD_COL = re.compile(r"^col (.+) (binary|integer|numeric|categorical|datetime|text|constant) uniq=")
 NUM = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?:e[+-]?\d+)?(?![\w%])")  # как в тесте этапа 3
 PCT = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)%")
 
@@ -44,12 +49,14 @@ class ContextOverflow(ValueError):
     """Профиль данных и вопрос не помещаются в контекст модели."""
 
 
-def card_columns(card_text: str) -> list[str]:
-    return [m.group(1) for line in card_text.splitlines() if (m := CARD_COL.match(line))]
+def card_columns(card_text: str) -> dict[str, str]:
+    """Колонки из профиля данных: имя → тип (numeric, binary, categorical, …)."""
+    return {m.group(1): m.group(2) for line in card_text.splitlines() if (m := CARD_COL.match(line))}
 
 
-def next_options(qtype: str, chosen: dict, columns: list[str]) -> list[tuple[str, str] | None]:
-    """Разрешённые следующие поля (ключ, значение); None — конец разбора."""
+def next_options(qtype: str, chosen: dict, columns: dict[str, str]) -> list[tuple[str, str] | None]:
+    """Разрешённые следующие поля (ключ, значение); None — конец разбора. columns — имя → тип:
+    переменная порога (running) — только числовая колонка."""
     required, allowed = GRAMMAR[qtype]
     keys = [k for k in chosen if k != "type"]
     last = FIELD_ORDER.index(keys[-1]) if keys else -1
@@ -58,7 +65,11 @@ def next_options(qtype: str, chosen: dict, columns: list[str]) -> list[tuple[str
     for i, k in enumerate(FIELD_ORDER):
         if i <= last or k not in allowed:
             continue
-        values = [c for c in columns if c not in used and "`" not in c] if k in COLUMN_KEYS else FLAG_VALUES[k]
+        if k in COLUMN_KEYS:
+            values = [c for c, kind in columns.items() if c not in used and "`" not in c
+                      and (k != "running" or kind in ("numeric", "integer"))]
+        else:
+            values = FLAG_VALUES[k]
         out += [(k, v) for v in values]
         if k in required:  # обязательное поле нельзя перепрыгнуть
             break
@@ -82,6 +93,7 @@ class Advisor:
         self.modes = {s[6:-1]: i for s, i in self.tok.special.items() if s.startswith("<MODE:")}
         self.methods = self.pr.methods
         self.space = self.pr.text(" ")
+        self.values = "greedy"  # выбор значения поля: greedy | sequence | mean (см. _choose)
         self.pause = None  # вызывается после каждого прохода модели: потолок нагрузки (model.limits.GpuDuty)
 
     # ---------- общее ----------
@@ -125,6 +137,23 @@ class Advisor:
         return lp
 
     @torch.no_grad()
+    def _choose(self, cache: KVCache, logits: torch.Tensor, seqs: dict[str, list[int]]) -> str:
+        if self.values == "greedy":  # argmax по токену среди ещё совместимых вариантов
+            branch, cand, i = cache.fork(), dict(seqs), 0
+            while len(cand) > 1:
+                allowed = sorted({s[i] for s in cand.values() if len(s) > i})
+                t, _ = self._pick(logits, allowed)
+                cand = {v: s for v, s in cand.items() if len(s) > i and s[i] == t}
+                i += 1
+                if len(cand) > 1:
+                    logits = self._feed(branch, [t])
+            return next(iter(cand))
+        score = {v: self._logprob(cache, logits, s) for v, s in seqs.items()}
+        if self.values == "mean":
+            score = {v: score[v] / len(seqs[v]) for v in score}
+        return max(score, key=score.get)
+
+    @torch.no_grad()
     def parse(self, question: str, card_text: str) -> dict:
         columns = card_columns(card_text)
         cache, logits = self._start(self.pr.pass1(card_text, question))
@@ -140,11 +169,10 @@ class Advisor:
             if key is None:
                 break
             logits = self._feed(cache, key_tokens[key])
-            # значение — по вероятности всей его последовательности токенов, а не первого токена:
-            # иначе выигрывает колонка с вероятным началом и невероятным продолжением
+            # значение — среди вариантов этого ключа (см. _choose и описание модуля)
             n = len(key_tokens[key])
             rest = {o[1]: self.pr.text(f" {key}=`{o[1]}`")[n:] for o in options if o is not None and o[0] == key}
-            value = max(rest, key=lambda v: self._logprob(cache, logits, rest[v]))
+            value = self._choose(cache, logits, rest)
             fields[key] = value
             logits = self._feed(cache, rest[value])
         return fields
