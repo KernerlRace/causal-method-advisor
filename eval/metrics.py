@@ -19,6 +19,12 @@ def _best(gold: dict) -> set:
     return {m for m, w in gold.items() if w == top}
 
 
+def poor_overlap(rec: dict) -> bool:
+    """Back-door с плохим пересечением групп (в RDD пересечения нет по построению — это другое)."""
+    flags = {f for r in rec["diagnostics"].values() for f in r["flags"]}
+    return "poor_overlap" in flags and "running_variable_found" not in flags
+
+
 def rules_only_ranking(rec: dict) -> list[str]:
     """Нижняя планка: порядок вердиктов правил (допустимые, затем с оговорками)."""
     return [m for m, v in rec["verdicts"].items() if v["status"] != "forbidden"]
@@ -46,6 +52,8 @@ def evaluate_backend(backend, examples: list[dict], records: dict[str, dict]) ->
         probs, mode = backend.rank(rec["structure"], rec["diagnostics"], rec["verdicts"], gold_fields, **ctx)
         ranked = list(probs)
         s["mode (gold parse)"].append(mode == rec["answer_mode"])
+        if poor_overlap(rec):
+            s["mode (gold parse, poor overlap)"].append(mode == rec["answer_mode"])
         if best:
             s["top1 (gold parse)"].append(bool(ranked) and ranked[0] in best)
             s["top3 (gold parse)"].append(bool(best & set(ranked[:3])))

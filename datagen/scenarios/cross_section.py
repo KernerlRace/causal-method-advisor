@@ -7,8 +7,8 @@ import pandas as pd
 
 from advisor.query import CausalQuery
 from datagen.naming import Namer, realize
-from datagen.scenario import (Scenario, answer_mode, covariates, effect_size, encode_binary, finalize,
-                              loguniform_int, outcome_factor, positive, prune_gold, scale_outcome)
+from datagen.scenario import (Scenario, answer_mode, backdoor_gold, covariates, effect_size, encode_binary, finalize,
+                              loguniform_int, outcome_factor, overlap_gold, positive, prune_gold, scale_outcome)
 
 
 def _sigmoid(x):
@@ -101,9 +101,8 @@ def backdoor_small(rng) -> Scenario:
     y_std = F @ beta + tau * d + rng.uniform(0.5, 1.0) * rng.normal(size=n)
     cols[t], cols[y] = encode_binary(rng, d), scale_outcome(yc, y_std)
     query = CausalQuery("effect", treatment=t, outcome=y, randomized=False if rng.random() < 0.3 else None)
-    gold = {"regression": 1.0, "psm": 0.6, "ipw": 0.5, "matching": 0.6 if k <= 4 else 0.3, "doubly_robust": 0.4}
-    return _build("backdoor_small", namer, rng, cols, query, gold, tau * outcome_factor(yc, y_std), "ATE",
-                  {"n": n, "k": k, "tau_std": tau})
+    return _build("backdoor_small", namer, rng, cols, query, backdoor_gold(n, k), tau * outcome_factor(yc, y_std),
+                  "ATE", {"n": n, "k": k, "tau_std": tau})
 
 
 def backdoor_large(rng) -> Scenario:
@@ -124,9 +123,41 @@ def backdoor_large(rng) -> Scenario:
     y_std = g @ b + 0.3 * F @ rng.normal(0, 0.5, F.shape[1]) + tau * d + rng.uniform(0.5, 1.0) * rng.normal(size=n)
     cols[t], cols[y] = encode_binary(rng, d), scale_outcome(yc, y_std)
     query = CausalQuery("effect", treatment=t, outcome=y, randomized=False if rng.random() < 0.3 else None)
-    gold = {"dml": 1.0, "doubly_robust": 1.0, "causal_forest": 0.6, "ipw": 0.3, "psm": 0.3, "regression": 0.2}
-    return _build("backdoor_large", namer, rng, cols, query, gold, tau * outcome_factor(yc, y_std), "ATE",
-                  {"n": n, "k": k, "tau_std": tau})
+    return _build("backdoor_large", namer, rng, cols, query, backdoor_gold(n, k), tau * outcome_factor(yc, y_std),
+                  "ATE", {"n": n, "k": k, "tau_std": tau})
+
+
+def backdoor_targeted(rng) -> Scenario:
+    """Воздействие назначали по нескольким признакам (адресное предложение, лечение по тяжести
+    состояния): все конфаундеры наблюдаемы, но у многих объектов воздействие почти предрешено —
+    группы плохо пересекаются. Эталон тогда — варианты (scenario.overlap_gold, по флагу диагностики);
+    при умеренной силе отбора флага нет, и ответ как у back-door сценария того же размера.
+
+    Правило отбора — сумма 2–4 ковариат с близкими весами: ни одна переменная в одиночку его не
+    объясняет, поэтому это не порог RDD. Наклон логита от 1.5 (около 5% объектов с propensity
+    за пределами [0.05, 0.95]) до 8 (около 70%)."""
+    namer = Namer(rng)
+    n = loguniform_int(rng, 200, 20000)
+    k = int(rng.integers(2, 9))
+    cols, F = covariates(namer, rng, n, k)
+    t, _, y, yc = _roles(namer)
+    m = int(rng.integers(2, min(k, 4) + 1))  # сколько ковариат входит в правило отбора
+    a = rng.uniform(0.7, 1.0, m) * rng.choice([-1, 1], m)
+    score = F[:, :m] @ a
+    score = (score - score.mean()) / max(score.std(), 1e-9)
+    slope = float(np.exp(rng.uniform(np.log(1.5), np.log(8.0))))
+    d = rng.random(n) < _sigmoid(slope * (score - rng.uniform(-0.6, 0.6)))
+    tau = effect_size(rng)
+    beta = rng.uniform(0.3, 1.0, k) * rng.choice([1, 1, -1], k)
+    beta[:m] = np.abs(beta[:m]) * np.sign(a)  # отбирали тех, у кого исход и так выше (или ниже)
+    nonlinear = rng.random() < 0.3
+    y_std = (F @ beta + (0.6 * np.sin(2 * F[:, 0]) + 0.4 * (F[:, 1] ** 2 - 1) if nonlinear else 0)
+             + tau * d + rng.uniform(0.5, 1.0) * rng.normal(size=n))
+    cols[t], cols[y] = encode_binary(rng, d), scale_outcome(yc, y_std)
+    query = CausalQuery("effect", treatment=t, outcome=y, randomized=False if rng.random() < 0.3 else None)
+    return _build("backdoor_targeted", namer, rng, cols, query, overlap_gold(n, k, nonlinear),
+                  tau * outcome_factor(yc, y_std), "ATE",
+                  {"n": n, "k": k, "tau_std": tau, "m": m, "slope": slope, "nonlinear": nonlinear})
 
 
 def continuous_treatment(rng) -> Scenario:

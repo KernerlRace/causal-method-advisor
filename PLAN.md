@@ -206,6 +206,7 @@ CSV + вопрос
 | RCT, бинарный treatment | diff-in-means; для CATE — meta-learners/uplift |
 | Наблюдательные данные, конфаундеры наблюдаемы, n мало | регрессия, PSM, IPW |
 | То же, n большое, нелинейность | DR, DML; для CATE — CausalForestDML |
+| То же, но воздействие почти предрешено ковариатами (плохой overlap, `backdoor_targeted`, этап 9) | **варианты:** DR после обрезки по propensity score, PSM с калипером; регрессия ниже (экстраполирует), IPW последним |
 | Непрерывный treatment | LinearDML, CausalForestDML |
 | Ненаблюдаемый конфаундер + инструмент | IV |
 | Ненаблюдаемый конфаундер + полный медиатор | front-door |
