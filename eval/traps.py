@@ -24,7 +24,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from advisor.pipeline import AdviceError, load_backend
-from eval.handwritten import Analyses, ok, rank, token_mode
+from eval.handwritten import Analyses, ok, parse_check, parse_confidence_report, rank, token_mode
 
 ROOT = Path(__file__).resolve().parent.parent
 QUESTIONS = ROOT / "eval" / "trap_questions.jsonl"
@@ -57,17 +57,23 @@ def evaluate_traps(backend, questions: list[dict]) -> tuple[dict, list[dict]]:
         card = an.card(q["file"])
         gold = q["fields"]
         pred = backend.parse(q["question"], card.to_text())
+        parse_conf, confirm = parse_check(backend)
         role_keys = ("target",) if gold["type"] == "not_causal" else ("treatment", "outcome")
         parse_ok = pred.get("type") == gold["type"] and all(ok(pred, gold, k) for k in role_keys)
         e2e, given = answer(backend, an, q, pred), answer(backend, an, q, gold)
         rows.append({"id": q["id"], "trap": q["trap"], "file": q["file"], "lang": q["lang"],
                      "question": q["question"], "gold": gold, "pred": pred, "parse_ok": parse_ok,
+                     "parse_confidence": parse_conf, "confirm": confirm,
                      **{k: e2e[k] for k in ("mode", "token_mode", "confidence", "top", "methods")},
                      "expect": q["expect"],
                      "correct": parse_ok and e2e["ok"], "correct_token": parse_ok and e2e["ok_token"],
+                     "caught": not parse_ok and confirm is not None,
                      "gold_parse": {k: given[k] for k in ("mode", "token_mode", "confidence", "top")},
                      "correct_gold_parse": given["ok"], "correct_gold_parse_token": given["ok_token"]})
-    return summarize(rows, token=hasattr(backend, "last")), rows
+    metrics = summarize(rows, token=hasattr(backend, "last"))
+    if parse := parse_confidence_report(rows):
+        metrics["parse_confidence"] = parse
+    return metrics, rows
 
 
 def summarize(rows: list[dict], token: bool) -> dict:
@@ -95,6 +101,11 @@ def summarize(rows: list[dict], token: bool) -> dict:
             out[trap]["correct_token"] = round(sum(r["correct_token"] for r in rs) / n, 3)
             out[trap]["modes_token"] = {m: tm.get(m, 0) for m in ("refuse", "options", "recommend")}
             out[trap]["correct_gold_parse_token"] = round(sum(r["correct_gold_parse_token"] for r in rs) / n, 3)
+        if any(r["parse_confidence"] is not None for r in rs):  # неверный разбор, но модель попросила его подтвердить
+            out[trap]["wrong_parses_caught"] = f"{sum(r['caught'] for r in rs)} of {sum(not r['parse_ok'] for r in rs)}"
+            flagged = sum(r["parse_ok"] and r["confirm"] is not None for r in rs)
+            out[trap]["right_parses_flagged"] = f"{flagged} of {sum(r['parse_ok'] for r in rs)}"
+            out[trap]["correct_or_caught"] = round(sum(r["correct"] or r["caught"] for r in rs) / n, 3)
     return out
 
 
@@ -118,12 +129,19 @@ def main() -> None:
     name = args.name or args.backend
     print(f"{name} on {len(questions)} trap questions (correct = expected mode with the right parse)")
     for trap, m in metrics.items():
+        if trap == "parse_confidence":
+            continue
         line = (f"  {trap:15s} n={m['n']:2d}  correct {m['correct']:.0%}  parse {m['parse_ok']:.0%}  modes {m['modes']}"
                 f"  | given the gold parse: {m['correct_gold_parse']:.0%}")
         if "correct_token" in m:
             line += (f"\n  {'':15s} by the mode token: correct {m['correct_token']:.0%}  modes {m['modes_token']}"
                      f"  | given the gold parse: {m['correct_gold_parse_token']:.0%}")
+        if "correct_or_caught" in m:
+            line += (f"\n  {'':15s} asks to confirm the roles: wrong parses caught {m['wrong_parses_caught']}, right "
+                     f"parses flagged {m['right_parses_flagged']}  | correct or caught {m['correct_or_caught']:.0%}")
         print(line)
+    for k, v in metrics.get("parse_confidence", {}).items():
+        print(f"  {k:50s} {v}")
     RESULTS.mkdir(exist_ok=True)
     (RESULTS / f"traps_{name}.json").write_text(json.dumps(metrics, ensure_ascii=False, indent=2) + "\n",
                                                 encoding="utf-8")

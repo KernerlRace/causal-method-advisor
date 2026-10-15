@@ -69,6 +69,11 @@ def rank(backend, an: Analyses, q: dict, fields: dict) -> tuple[dict, str]:
     return probs, mode
 
 
+def parse_check(backend) -> tuple[float | None, str | None]:
+    """Уверенность нейросети в последнем разборе и что попросить подтвердить (у бейзлайна — нет)."""
+    return backend.parse_check() if hasattr(backend, "parse_check") else (None, None)
+
+
 def token_mode(backend, mode: str) -> str:
     """Режим, который выдал бы пайплайн этапа 8: токен <MODE:*> модели (отказы по правилам и типу — те же)."""
     last = getattr(backend, "last", None)
@@ -83,6 +88,7 @@ def evaluate_handwritten(backend, questions: list[dict], explain: bool = False) 
         card = an.card(q["file"])
         gold = q["fields"]
         pred = backend.parse(q["question"], card.to_text())
+        parse_conf, confirm = parse_check(backend)
         role_keys = ("target",) if gold["type"] == "not_causal" else ("treatment", "outcome")
         type_ok = pred.get("type") == gold["type"]
         roles_ok = type_ok and all(ok(pred, gold, k) for k in role_keys)
@@ -94,7 +100,7 @@ def evaluate_handwritten(backend, questions: list[dict], explain: bool = False) 
         s["parse.exact"].append(exact)
         s[f"parse.treatment+outcome ({q['lang']})"].append(roles_ok)
         row = {"id": q["id"], "file": q["file"], "lang": q["lang"], "question": q["question"], "gold": gold, "pred": pred,
-               "best": q["best"]}
+               "best": q["best"], "parse_ok": roles_ok, "parse_confidence": parse_conf, "confirm": confirm}
 
         if q["best"] is not None:
             probs, mode = rank(backend, an, q, canonical(gold))
@@ -130,6 +136,7 @@ def evaluate_handwritten(backend, questions: list[dict], explain: bool = False) 
         rows.append(row)
     metrics = {k: f"{np.mean(v):.3f}  (n={len(v)})" for k, v in sorted(s.items())}
     metrics.update(confidence_report(rows))
+    metrics.update(parse_confidence_report(rows))
     return metrics, rows
 
 
@@ -148,6 +155,38 @@ def confidence_report(rows: list[dict]) -> dict:
     return out
 
 
+def parse_confidence_report(rows: list[dict]) -> dict:
+    """Уверенность в разборе против его правоты (тип и роли) — только отчёт, как и confidence_report.
+    Отдельно — неверные сквозные ответы: сколько из них попросили бы подтвердить роли."""
+    from advisor.confidence import auroc, reliability
+
+    rs = [r for r in rows if r.get("parse_confidence") is not None]
+    if not rs:
+        return {}
+    c, ok = np.array([r["parse_confidence"] for r in rs]), np.array([r["parse_ok"] for r in rs], bool)
+    flag = np.array([r["confirm"] is not None for r in rs])
+    ece, _ = reliability(c, ok, bins=10)
+    a = auroc(c, ok)
+
+    def share(mask) -> str:
+        return f"{mask.mean():.3f}  (n={len(mask)})" if len(mask) else "-"
+
+    out = {"parse confidence: AUROC, right vs wrong parse": f"{a:.3f}" if a is not None else "-",
+           "parse confidence: mean when parse right": f"{c[ok].mean():.3f}  (n={int(ok.sum())})" if ok.any() else "-",
+           "parse confidence: mean when parse wrong": f"{c[~ok].mean():.3f}  (n={int((~ok).sum())})" if (~ok).any() else "-",
+           "parse confidence: ECE (10 bins)": f"{ece:.3f}  (n={len(rs)})",
+           "asks to confirm: wrong parses": share(flag[~ok]),
+           "asks to confirm: right parses (false alarms)": share(flag[ok])}
+    wrong = [r for r in rs if r.get("best") is not None and not r.get("top1_ok")]  # у ловушек метода в эталоне нет
+    if wrong:
+        out["asks to confirm: wrong end-to-end answers"] = share(np.array([r["confirm"] is not None for r in wrong]))
+        sure = [r for r in wrong if (r.get("confidence") or 0) >= 0.7]
+        if sure:
+            out["asks to confirm: wrong answers with method confidence >= 0.7"] = share(
+                np.array([r["confirm"] is not None for r in sure]))
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--backend", default="baseline", choices=["baseline", "causalgpt"])
@@ -158,13 +197,13 @@ def main() -> None:
     args = ap.parse_args()
 
     from threadpoolctl import threadpool_limits
-    threadpool_limits(max(1, int((os.cpu_count() or 1) * 0.75)))  # потолок нагрузки на CPU
+    threadpool_limits(max(1, int((os.cpu_count() or 1) * 0.5)))  # потолок нагрузки на CPU
     kw = {k: v for k, v in (("ckpt", args.ckpt), ("device", args.device)) if v}
     backend = load_backend(args.backend, **kw)
     questions = [json.loads(line) for line in QUESTIONS.open(encoding="utf-8")]
     if args.backend == "causalgpt":
         from model.limits import GpuDuty
-        backend.model.pause = GpuDuty(backend.model.device).step
+        backend.model.pause = GpuDuty(backend.model.device, duty=0.5).step
     metrics, rows = evaluate_handwritten(backend, questions, explain=args.explain)
     name = args.name or args.backend
     print(f"{name} on {len(questions)} hand-written questions")

@@ -15,5 +15,13 @@
   "top1 end-to-end (ru)": "0.909  (n=22)",
   "confidence: mean when top1 right": "0.892  (n=63)",
   "confidence: mean when top1 wrong": "0.723  (n=13)",
-  "confidence: ECE end to end (10 bins)": "0.175  (n=76)"
+  "confidence: ECE end to end (10 bins)": "0.175  (n=76)",
+  "parse confidence: AUROC, right vs wrong parse": "0.879",
+  "parse confidence: mean when parse right": "0.950  (n=80)",
+  "parse confidence: mean when parse wrong": "0.871  (n=13)",
+  "parse confidence: ECE (10 bins)": "0.152  (n=93)",
+  "asks to confirm: wrong parses": "0.923  (n=13)",
+  "asks to confirm: right parses (false alarms)": "0.225  (n=80)",
+  "asks to confirm: wrong end-to-end answers": "0.647  (n=17)",
+  "asks to confirm: wrong answers with method confidence >= 0.7": "0.500  (n=10)"
 }
