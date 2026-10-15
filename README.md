@@ -22,7 +22,9 @@ hosting has no PyTorch — run the app locally to talk to the model.
 > for the classical baseline, and writes its own explanations, checked number by number against the data.
 > Its confidence is now calibrated (expected calibration error on held-out template questions 0.015 instead of 0.310), and answers it is unsure
 > of become options instead of a recommendation; on 48 trap questions it answers 44% correctly, mostly losing on parsing
-> unfamiliar datasets. Next: confidence in the parse itself, and questions written by other people.
+> unfamiliar datasets. When it is unsure how it read the question it now says so — *"I'm not sure the treatment is
+> `age15to24`"* — and asks to confirm the roles: that catches 110 of 112 wrong parses outside the training phrasings,
+> at the price of asking about a quarter of the right ones too. Next: questions written by other people.
 
 <img src="docs/img/question.png" alt="Asking about California's Proposition 99 on the demo dataset">
 
@@ -53,7 +55,9 @@ mistakes in causal reasoning, so the model only reads the question, ranks the me
 The model runs in two passes. Pass 1 reads the data profile and the question and writes the parse under
 **constrained decoding**: every allowed continuation (`treatment=` + each column of *this* CSV, `randomized=yes`, ...,
 end of parse) is tokenised into a prefix tree, and each step picks only among the children of the current node, so the
-model cannot name a column the data does not have. Pass 2 sees the diagnostics and the rule verdicts; the answer mode
+model cannot name a column the data does not have. The probability of every choice is kept; when the reading is less
+certain than on 99% of familiar questions, the advisor asks the user to confirm the weakest part of it (stage 9, part 2
+below). Pass 2 sees the diagnostics and the rule verdicts; the answer mode
 and the method probabilities are read from the softmax over the special `<MODE:*>` and `<M:*>` tokens, rules remove
 forbidden methods, a calibrated confidence decides between a recommendation, options and a refusal (stage 9 below),
 and the model writes the explanation. The explanation is shown only if every number and percentage
@@ -81,8 +85,8 @@ facts is used, and the UI says so.
 | `model/decode.py` | two-pass inference with constrained decoding, method probabilities from the softmax, generated explanations with a fact check; `ask` and `export` commands |
 | `model/limits.py` | load cap for training and evaluation: short pauses keep the GPU busy at most ~65% of the time, PyTorch threads capped at 75% of the cores |
 | `eval/handwritten_questions.jsonl` | 93 questions written by hand outside the template grammar, with gold parses and methods; `eval/handwritten.py` scores any backend on them |
-| `advisor/confidence.py` | calibrated confidence and the answer mode: temperature-scaled method probabilities, recommend / options / refuse; plain NumPy, so the app needs no PyTorch for it |
-| `eval/calibrate.py` | fits the temperature and the answer-mode rule on the validation split and reports on test (`models/calibration.json`, `eval/results/calibration.json`) |
+| `advisor/confidence.py` | calibrated confidence and the answer mode: temperature-scaled method probabilities, recommend / options / refuse; confidence in the parse and when to ask the user to confirm it; plain NumPy, so the app needs no PyTorch for it |
+| `eval/calibrate.py` | fits the temperature, the answer-mode rule and the parse-confidence threshold on the validation split and reports on test (`models/calibration.json`, `eval/results/calibration.json`) |
 | `eval/traps.py`, `eval/trap_questions.jsonl`, `data/traps/` | 48 trap questions where a confident recommendation is wrong — hidden confounding, no control group, prediction, poor overlap — on six datasets built by `scripts/make_traps.py` |
 | `datagen/corpus.py` | pretraining corpus: Wikipedia EN/RU articles on statistics, econometrics, causal inference and ML (plus everyday domains), Facure's handbook, our method cards and explanations; resumable polite fetching, cleaning, deduplication, document-level train/val split |
 | `data/demo/` | 12 demo datasets with questions, including the real Prop 99 data |
@@ -290,6 +294,49 @@ data never taught. That sets the next steps: a confidence for the parse itself, 
 X?"* when unsure; poor overlap as an options case in the training data; and trap and live questions from other people,
 because these 48, like the 93 hand-written ones, were written during development.
 
+### Confidence in the parse (stage 9, part 2)
+
+Pass 1 now keeps the probability of every choice it makes: the question type among the four `<T:*>` tokens, each field,
+and each column, token by token among the tokens that still lead to a column of this CSV (that makes a proper
+distribution over the columns; a test checks it against an explicit enumeration of the prefix tree). Their product is the
+model's own probability that it read the type and the roles right (`Advisor.last_parse`, `advisor/confidence.py`).
+
+The plan was to calibrate this number on the validation split, like the method confidence. There was nothing to calibrate
+it on: the model parses all 4,988 validation questions correctly, because validation only has the phrasings it was trained
+on (the held-out templates exist only in test). By a rule written down before the count was in, the advisor uses the
+model's own probability as it is, and asks the user to confirm the roles below 0.9998, the level that flags 1 in 100
+familiar questions. Everything below is report only:
+
+| | Test, familiar templates (4,543) | Test, unseen templates (427) | Hand-written (93) | Traps (48) |
+|---|---|---|---|---|
+| Parse right (type and roles) | 99.98% | 82.7% | 86.0% | 47.9% |
+| AUROC, right vs wrong parse | — (1 wrong) | 0.973 | 0.879 | 0.936 |
+| Mean probability, right / wrong parse | — | 0.993 / 0.744 | 0.950 / 0.871 | 0.954 / 0.540 |
+| Calibration error (ECE) | 0.0001 | 0.123 | 0.152 | 0.259 |
+| Wrong parses it asks to confirm | 1 of 1 | 73 of 74 | 12 of 13 | 25 of 25 |
+| Right parses it asks to confirm | 1.6% | 25% | 22.5% | 52% |
+
+<sub>ECE with 15 bins on test and 10 on the two small sets, as in stage 9. On the whole test split ECE is 0.011 and AUROC 0.998,
+but that is mostly the familiar templates.</sub>
+
+The probability ranks parses well and is not calibrated outside the training phrasings: on unseen templates the model
+averages 0.95 while 83% of its parses are right, and every wrong parse on test is a wrong question type. The threshold sits
+so high that this does not stop it from catching errors: across the three sets outside the training phrasings it asks about
+110 of 112 wrong parses, including every trap misread such as `annual_spend` as the treatment. On traps, 96% of the answers
+are now either correct or a misread the advisor flags, against 44% correct. In the Prop 99 demo the model reads
+`age15to24` as the treatment with probability 0.25, and instead of only a recommendation of regression at 100% confidence
+the UI says
+*"I'm not sure the treatment is `age15to24`"*, marks that field and shows the advice as provisional. The price is
+asking about a quarter of the right parses on unfamiliar questions; confirming the roles with *Re-run with these
+roles* removes the warning.
+
+Parse confidence does not change the answer mode. "Options" means several methods fit these roles; "I may have misread
+you" is a different message, and options built on a wrong treatment would still be wrong. What it cannot see: a
+confident misread (one hand-written dose question read as a heterogeneity question at 0.99995), and wrong methods on a
+right parse, which are 7 of the 17 wrong hand-written answers. A fitted calibration needs wrong parses from phrasings the
+model has not seen, such as held-out templates in validation or questions from other people, and so does a threshold
+with fewer false alarms.
+
 ## Quick start
 
 Windows with an NVIDIA GPU, using [uv](https://docs.astral.sh/uv/):
@@ -345,6 +392,8 @@ Fine-tune, evaluate and talk to the model (needs `checkpoints/pretrain_best.pt` 
 .venv/Scripts/python.exe -m model.decode ask data/demo/smoking.csv "Did Prop 99 reduce cigarette sales?"
 .venv/Scripts/python.exe -m eval.calibrate collect --split val   # pass-2 logits, ~7 min per split under the load cap
 .venv/Scripts/python.exe -m eval.calibrate collect --split test
+.venv/Scripts/python.exe -m eval.calibrate collect --parse --split val    # the model's own parse, ~25 min per split
+.venv/Scripts/python.exe -m eval.calibrate collect --parse --split test
 .venv/Scripts/python.exe -m eval.calibrate fit                   # -> models/calibration.json, eval/results/calibration.json
 .venv/Scripts/python.exe -m scripts.plot_calibration eval/results/calibration.json docs/img/calibration
 .venv/Scripts/python.exe scripts/make_traps.py                   # -> data/traps/
@@ -365,7 +414,8 @@ Fine-tune, evaluate and talk to the model (needs `checkpoints/pretrain_best.pt` 
 - [x] Fine-tuning on the task, constrained decoding, two-pass inference — beats the baseline on hand-written questions
 - [ ] Questions written by other people as the live test set
 - [x] Calibrated confidence, "options" mode and honest refusals, trap questions
-- [ ] Confidence in the parse itself; poor overlap taught as an options case
+- [x] Confidence in the parse itself: asks to confirm the roles when unsure
+- [ ] Poor overlap taught as an options case
 - [ ] Evaluation against the baselines, demo scenarios
 
 The detailed design document (in Russian) is in [PLAN.md](PLAN.md).
