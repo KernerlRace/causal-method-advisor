@@ -197,10 +197,9 @@ class GPT(nn.Module):
     def num_params(self) -> int:
         return sum(p.numel() for p in self.parameters())  # общая матрица считается один раз
 
-    def forward(self, idx: torch.Tensor, targets: torch.Tensor | None = None,
-                cache: KVCache | None = None) -> tuple[torch.Tensor, torch.Tensor | None]:
-        """idx (B, T) → логиты (B, T, vocab). targets — следующие токены; -100 не входит в loss
-        (так на SFT считаем ошибку только на ответе)."""
+    def hidden(self, idx: torch.Tensor, cache: KVCache | None = None) -> torch.Tensor:
+        """Выход последнего блока после нормировки: (B, T, d_model); логиты — lm_head от него.
+        На SFT логиты нужны только в позициях ответа: считать их по всей длине — лишние гигабайты."""
         B, T = idx.shape
         start = cache.length() if cache is not None else 0
         if start + T > self.cfg.context:
@@ -209,7 +208,12 @@ class GPT(nn.Module):
         x = self.drop(self.tok_emb(idx))
         for block in self.blocks:
             x = block(x, cos, sin, cache)
-        logits = self.lm_head(self.norm(x))
+        return self.norm(x)
+
+    def forward(self, idx: torch.Tensor, targets: torch.Tensor | None = None,
+                cache: KVCache | None = None) -> tuple[torch.Tensor, torch.Tensor | None]:
+        """idx (B, T) → логиты (B, T, vocab). targets — следующие токены; -100 не входит в loss."""
+        logits = self.lm_head(self.hidden(idx, cache))
         loss = None
         if targets is not None:
             loss = F.cross_entropy(logits.float().view(-1, logits.shape[-1]), targets.reshape(-1),
