@@ -1,0 +1,14 @@
+{
+  "method_T": 0.086808681452177,
+  "mode_T": 1.257519028681252,
+  "min_top": 0.23,
+  "min_gap": 0.02,
+  "rule": "either",
+  "model_sha": "6dc9742a61017498",
+  "fitted_on": "val split, models/causalgpt.pt (export of checkpoints/sft_pretrained_best.pt)",
+  "metrics": {
+    "test_method_ece_raw": 0.30999699855019497,
+    "test_method_ece_scaled": 0.01546787627777951,
+    "test_mode_balanced": 0.9994347088750706
+  }
+}
