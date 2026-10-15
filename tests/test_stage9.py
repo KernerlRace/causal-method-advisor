@@ -1,4 +1,4 @@
-"""Этап 9: калиброванная уверенность, режим ответа, отказы.
+"""Этап 9: калиброванная уверенность, режим ответа, отказы, ловушки.
 Математика калибровки и решение о режиме — без PyTorch; нейробэкенд — на крошечной модели (CPU)."""
 import json
 import subprocess
@@ -214,3 +214,42 @@ def test_threshold_search_finds_a_separating_rule(tmp_path):
              scenario=kind, ckpt="x", model_sha="0")
     bal, a, g = search_thresholds(Scores(tmp_path / "s.npz"), 1.0, "confidence")
     assert bal == pytest.approx(1.0) and (a > 0.5 or g > 0)
+
+
+# ---------- ловушки ----------
+
+def test_trap_questions_match_their_data():
+    from advisor.profiler import load_csv
+
+    qs = [json.loads(line) for line in (ROOT / "eval" / "trap_questions.jsonl").open(encoding="utf-8")]
+    assert len({q["id"] for q in qs}) == len(qs) == 48
+    kinds = {q["trap"] for q in qs}
+    assert kinds == {"unidentifiable", "no_controls", "prediction", "poor_overlap"}
+    assert all(sum(q["trap"] == k for q in qs) >= 10 for k in kinds)
+    cols = {}
+    for q in qs:
+        if q["file"] not in cols:
+            cols[q["file"]] = set(load_csv(ROOT / "data" / q["file"]).columns)
+        for k in ("target", "treatment", "outcome"):
+            if k in q["fields"]:
+                assert q["fields"][k] in cols[q["file"]], (q["id"], k)
+        assert set(q["expect"]) <= {"refuse", "options"}
+
+
+def test_trap_datasets_are_what_they_claim():
+    from advisor.diagnostics import run_diagnostics
+    from advisor.pipeline import query_from_fields
+    from advisor.profiler import load_csv, profile
+
+    flags = {}
+    for name, t, y in (("card_offer_poor_overlap", "premium_card_offer", "card_spend"),
+                       ("icu_poor_overlap", "icu_admission", "length_of_stay"),
+                       ("stores_all_treated", "self_checkout", "revenue"),
+                       ("newsletter_short_series", "new_design", "open_rate")):
+        df = load_csv(ROOT / "data" / "traps" / f"{name}.csv")
+        card = profile(df)
+        q = query_from_fields({"type": "effect", "treatment": t, "outcome": y}, list(df.columns))
+        flags[name] = {f for r in run_diagnostics(df, card, q).values() for f in r.flags}
+    assert "poor_overlap" in flags["card_offer_poor_overlap"] and "poor_overlap" in flags["icu_poor_overlap"]
+    assert "running_variable_found" not in flags["card_offer_poor_overlap"] | flags["icu_poor_overlap"]
+    assert "no_controls" in flags["stores_all_treated"] and "no_controls" in flags["newsletter_short_series"]
