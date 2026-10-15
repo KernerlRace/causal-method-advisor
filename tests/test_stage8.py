@@ -124,12 +124,13 @@ def test_length_buckets_cover_every_example_once_per_pass():
 
 def test_grammar_of_the_parse():
     cols = card_columns(CARD)
-    assert cols == ["sales", "promo", "region", "sales_lag"]
+    assert list(cols) == ["sales", "promo", "region", "sales_lag"] and cols["promo"] == "binary"
     first = next_options("effect", {"type": "effect"}, cols)
     assert {o[0] for o in first} == {"treatment"} and None not in first  # treatment обязателен
     after = next_options("effect", {"type": "effect", "treatment": "promo", "outcome": "sales"}, cols)
     assert None in after and ("treatment", "region") not in after
     assert ("instrument", "promo") not in after and ("instrument", "region") in after  # колонка — один раз
+    assert ("running", "sales_lag") in after and ("running", "region") not in after  # порог — только число
     assert ("randomized", "yes") in after and ("hidden", "no") not in after
     assert next_options("discovery", {"type": "discovery"}, cols) == [("hidden", "yes"), None]
     late = next_options("effect", {"type": "effect", "treatment": "promo", "outcome": "sales", "hidden": "yes"}, cols)
@@ -228,6 +229,14 @@ def test_pipeline_uses_model_explanation_or_falls_back_to_template(rct):
     assert a.explanation == "Model text." and a.explanation_source == "model" and not a.notes
     b = advise(rct, "Did the coupon raise spend?", _Stub(None))
     assert b.explanation_source == "template" and b.explanation and b.notes
+
+
+def test_non_numeric_threshold_variable_does_not_crash_the_pipeline(observational):
+    """Модель (или правка ролей в интерфейсе) может назвать порогом категориальную колонку."""
+    fields = {"type": "effect", "treatment": "treatment", "outcome": "outcome", "running": "region"}
+    a = advise(observational, "Did the treatment work?", _Stub("x"), fields=fields)
+    rv = a.diagnostics["running_variable"]
+    assert not rv.applicable and "not numeric" in rv.message
 
 
 def test_handwritten_gold_matches_the_data():

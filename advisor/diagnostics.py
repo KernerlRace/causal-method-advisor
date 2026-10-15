@@ -291,6 +291,8 @@ def find_running_variable(df: pd.DataFrame, card: DataCard, query: CausalQuery) 
     """Ищет непрерывную переменную, порог которой определяет воздействие (кандидат для RDD)."""
     if card.structure != "cross_section" or not query.treatment or not _treatment_is_binary(card, query.treatment):
         return _na("running_variable", "needs cross-sectional data and a binary treatment")
+    if query.running_variable and card.column(query.running_variable).kind not in ("numeric", "integer"):
+        return _na("running_variable", f"'{query.running_variable}' is not numeric, so it cannot be a threshold variable")
     d = to_bool(df[query.treatment]).astype(int)
     candidates = [query.running_variable] if query.running_variable else [
         c.name for c in card.columns
