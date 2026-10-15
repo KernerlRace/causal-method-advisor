@@ -1,7 +1,8 @@
 """Сквозной пайплайн: CSV + вопрос → профиль → разбор вопроса → диагностики → правила → методы → объяснение.
 
-Бэкенд подключаемый: сейчас BaselineBackend (классический ML), на этапе 8 — наша нейросеть.
-У бэкенда два метода: parse (проход 1) и rank (проход 2); всё остальное — общий детерминированный код.
+Бэкенд подключаемый: BaselineBackend (классический ML, этап 4) или NeuralBackend — наш трансформер
+(этап 8, нужен PyTorch и чекпойнт). У бэкенда два метода: parse (проход 1) и rank (проход 2); нейросеть
+ещё пишет объяснение (explain). Всё остальное — общий детерминированный код.
 """
 from __future__ import annotations
 
@@ -28,7 +29,8 @@ class Backend(Protocol):
 
     def parse(self, question: str, card_text: str) -> dict: ...
 
-    def rank(self, structure: str, diagnostics: dict, verdicts: dict, fields: dict) -> tuple[dict, str]: ...
+    def rank(self, structure: str, diagnostics: dict, verdicts: dict, fields: dict,
+             question: str = "", card_text: str = "") -> tuple[dict, str]: ...
 
 
 class BaselineBackend:
@@ -41,8 +43,47 @@ class BaselineBackend:
     def parse(self, question, card_text):
         return self.parser.predict(question, card_text)
 
-    def rank(self, structure, diagnostics, verdicts, fields):
+    def rank(self, structure, diagnostics, verdicts, fields, question="", card_text=""):
         return self.ranker.predict(structure, diagnostics, verdicts, fields)
+
+
+class NeuralBackend:
+    """CausalGPT-mini: проход 1 — разбор с ограниченным декодированием (колонки только из этого CSV),
+    проход 2 — режим и вероятности методов из softmax, объяснение — генерация (model/decode.py)."""
+    name = "causalgpt"
+
+    def __init__(self, ckpt: Path = MODELS_DIR / "causalgpt.pt", device=None):
+        from model.decode import Advisor
+        self.model = Advisor(ckpt, device)
+
+    def parse(self, question, card_text):
+        return self.model.parse(question, card_text)
+
+    def rank(self, structure, diagnostics, verdicts, fields, question="", card_text=""):
+        if fields.get("type") == "not_causal":
+            return {}, "refuse"
+        forbidden = {m for m, v in verdicts.items() if v["status"] == "forbidden"}
+        probs, mode, _ = self.model.rank(question, card_text, fields, _diag(diagnostics, verdicts, fields), forbidden)
+        return probs, mode
+
+    def explain(self, question, card_text, fields, diagnostics, verdicts, probs, mode) -> str | None:
+        """Объяснение модели или None, если в нём есть число не из входа или не назван лучший метод."""
+        from model.decode import explanation_ok
+
+        diag = _diag(diagnostics, verdicts, fields)
+        text = self.model.explain(question, card_text, fields, diag, probs, mode)
+        top = next(iter(probs)) if probs and mode != "refuse" else None
+        return text if explanation_ok(text, "\n".join((card_text, question, diag)), top) else None
+
+
+def _diag(diagnostics: dict, verdicts: dict, fields: dict) -> str:
+    from datagen.explanations import diag_text
+    return diag_text({"diagnostics": diagnostics, "verdicts": verdicts,
+                      "query": {"running_variable": fields.get("running")}})
+
+
+def load_backend(name: str = "baseline", **kw) -> Backend:
+    return {"baseline": BaselineBackend, "causalgpt": NeuralBackend}[name](**kw)
 
 
 class AdviceError(ValueError):
@@ -61,6 +102,7 @@ class Advice:
     explanation: str
     backend: str
     notes: list[str] = field(default_factory=list)
+    explanation_source: str = "template"  # model — написала нейросеть, template — шаблон из фактов
 
 
 def detect_lang(question: str) -> str:
@@ -119,14 +161,15 @@ def advise(df: pd.DataFrame, question: str, backend: Backend, fields: dict | Non
     from datagen.explanations import explain
 
     card = profile(df)
+    card_text = card.to_text()
     notes = []
     if fields is None:
-        fields = backend.parse(question, card.to_text())
+        fields = backend.parse(question, card_text)
     query = query_from_fields(fields, list(df.columns))
     diags = run_diagnostics(df, card, query)
     verdicts = evaluate(card, query, diags)
     dd, vd = diag_dict(diags), verdict_dict(verdicts)
-    probs, mode = backend.rank(card.structure, dd, vd, fields)
+    probs, mode = backend.rank(card.structure, dd, vd, fields, question=question, card_text=card_text)
     if query.question_type != "not_causal" and not probs:
         mode = "refuse"
         notes.append("no method is applicable to this data and question")
@@ -135,6 +178,14 @@ def advise(df: pd.DataFrame, question: str, backend: Backend, fields: dict | Non
                      "outcome": query.outcome, "hidden_confounding": query.hidden_confounding},
            "gold": weights_for_explanation(probs, mode), "answer_mode": mode, "diagnostics": dd,
            "verdicts": vd, "params": {"target": fields.get("target")}}
-    seed = int(hashlib.md5(question.encode()).hexdigest(), 16) % (2 ** 32)
-    text = explain(rec, lang, np.random.default_rng(seed))
-    return Advice(lang, fields, card, diags, verdicts, probs, mode, text, backend.name, notes)
+    text, source = None, "template"
+    if hasattr(backend, "explain") and query.question_type != "not_causal":
+        text = backend.explain(question, card_text, fields, dd, vd, probs, mode)
+        if text is not None:
+            source = "model"
+        else:
+            notes.append("the model's own explanation failed the fact check, so a template one is shown")
+    if text is None:
+        seed = int(hashlib.md5(question.encode()).hexdigest(), 16) % (2 ** 32)
+        text = explain(rec, lang, np.random.default_rng(seed))
+    return Advice(lang, fields, card, diags, verdicts, probs, mode, text, backend.name, notes, source)
