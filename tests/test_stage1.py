@@ -138,6 +138,31 @@ def test_parallel_panel_keeps_did(parallel_panel):
     assert "pretrend_ok" in flags
     assert vs["did"].status == ALLOWED
     assert any("parallel" in p for p in vs["did"].pros)
+    # колонка «после» уже в паре с группой — отдельного дизайна «все получили воздействие» нет
+    assert [(d.kind, d.columns) for d in profile(parallel_panel).designs] == [("group_post", ("treated_group", "post"))]
+
+
+def test_categorical_outcome_does_not_crash_diagnostics(observational):
+    """Разбор вопроса может назвать исходом категориальную колонку: проверка нелинейности тогда неприменима."""
+    vs, flags, _ = verdicts(observational, CausalQuery("effect", treatment="treatment", outcome="region"))
+    card = profile(observational)
+    nl = run_diagnostics(observational, card, CausalQuery("effect", treatment="treatment", outcome="region"))["nonlinearity"]
+    assert not nl.applicable and "not numeric" in nl.message
+    yes_no = observational.assign(good=lambda d: (d["outcome"] > 0).map({True: "yes", False: "no"}))
+    nl = run_diagnostics(yes_no, profile(yes_no), CausalQuery("effect", treatment="treatment", outcome="good"))
+    assert nl["nonlinearity"].applicable
+
+
+def test_panel_where_every_unit_is_treated_at_once_has_no_controls(parallel_panel):
+    """Все юниты получили воздействие в один месяц: колонка меняется только во времени, как «после».
+    Это дизайн без контрольной группы — DiD, SC и SDID невозможны."""
+    df = parallel_panel.assign(launch=parallel_panel["post"]).drop(columns=["treated_group", "post"])
+    card = profile(df)
+    d = card.design_for("launch")
+    assert d is not None and d.n_control_units == 0 and d.n_treated_units == 40
+    vs, flags, _ = verdicts(df, CausalQuery("effect", treatment="launch", outcome="y"))
+    assert "no_controls" in flags
+    assert {vs[m].status for m in ("did", "sdid", "synthetic_control")} == {FORBIDDEN}
 
 
 def test_discovery_question(discovery):

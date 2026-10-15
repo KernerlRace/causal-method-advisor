@@ -294,6 +294,13 @@ def _detect_designs(df: pd.DataFrame, panel: PanelInfo, cols: list[ColumnProfile
     for col in indicators:
         if (des := _design_stats(df, u, t, to_bool(df[col].fillna(False)), "indicator", (col,))) is not None:
             designs.append(des)
+    # колонка меняется только во времени и не составила пару с группой: воздействие получили все юниты
+    # сразу — дизайн без контрольной группы (правила тогда запрещают DiD, SC и SDID)
+    used = {c for d in designs for c in d.columns}
+    for col in time_level:
+        if col not in used and (des := _design_stats(df, u, t, to_bool(df[col].fillna(False)), "indicator",
+                                                     (col,))) is not None:
+            designs.append(des)
     return designs
 
 
