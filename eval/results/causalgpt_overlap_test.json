@@ -1,0 +1,14 @@
+{
+  "mode (gold parse)": "0.999  (n=4986)",
+  "mode (gold parse, poor overlap)": "1.000  (n=242)",
+  "parse.exact (all fields)": "0.973  (n=4986)",
+  "parse.treatment+outcome": "0.993  (n=4986)",
+  "parse.treatment+outcome (ru)": "0.995  (n=767)",
+  "parse.type": "0.992  (n=4986)",
+  "parse.type (heldout tmpl)": "0.904  (n=427)",
+  "refuse correct (gold parse)": "1.000  (n=222)",
+  "top1 (gold parse)": "0.992  (n=4764)",
+  "top1 end-to-end": "0.988  (n=4764)",
+  "top1 rules-only": "0.661  (n=4764)",
+  "top3 (gold parse)": "1.000  (n=4764)"
+}
