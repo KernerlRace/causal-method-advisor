@@ -166,6 +166,21 @@ def test_constrained_parse_only_names_columns_of_this_csv(tmp_path):
             assert "treatment" in f and "outcome" in f
 
 
+def test_branch_scoring_matches_a_full_pass(tmp_path):
+    """Значение поля выбирается по log P всей последовательности; ветка кэша не портит префикс."""
+    adv = Advisor(_tiny_ckpt(tmp_path), "cpu")
+    prefix = PR.pass1(CARD, "Did the promo raise sales?")
+    seq = PR.text(" treatment=`sales_lag`")
+    cache, logits = adv._start(prefix)
+    before = cache.length()
+    lp = adv._logprob(cache, logits, seq)
+    assert cache.length() == before
+    full = torch.log_softmax(adv.model(torch.tensor([prefix + seq]))[0][0].float(), -1)
+    ref = sum(full[len(prefix) - 1 + i, t].item() for i, t in enumerate(seq))
+    assert lp == pytest.approx(ref, abs=1e-3)
+    assert adv._logprob(cache, logits, seq) == pytest.approx(lp, abs=1e-5)  # второй раз — то же самое
+
+
 def test_fine_tuned_tiny_model_answers_its_example(tmp_path):
     adv = Advisor(_tiny_ckpt(tmp_path, train_on=[REC], steps=60), "cpu")
     assert adv.parse(REC["question"], CARD) == REC["parse_fields"]
@@ -184,6 +199,9 @@ def test_explanation_fact_check():
     assert explanation_ok(f"Use {name}. The data has 500 rows.", src, "diff_in_means")
     assert not explanation_ok(f"Use {name}. The data has 501 rows.", src, "diff_in_means")  # число не из входа
     assert not explanation_ok("Use regression. The data has 500 rows.", src, "diff_in_means")  # не тот метод
+    trend = src + "\npretrend drift=8.27 rel=1.72 p=4.17e-07"
+    assert explanation_ok(f"Use {name}. Drift 8.27 (172% of the SD).", trend, "diff_in_means")
+    assert not explanation_ok(f"Use {name}. Drift 8.27 (108% of the SD).", trend, "diff_in_means")  # доля не та
     assert explanation_ok("This cannot be identified.", src, None)
     assert not explanation_ok("", src, None)
 

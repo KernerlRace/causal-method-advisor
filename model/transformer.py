@@ -90,6 +90,13 @@ class KVCache:
         k = self.k[layer]
         return 0 if k is None else k.shape[2]
 
+    def fork(self) -> KVCache:
+        """Ветка с тем же префиксом: extend склеивает новые тензоры, а не дописывает на месте,
+        поэтому префикс общий и не копируется — так дёшево сравнивать несколько продолжений."""
+        branch = KVCache(len(self.k))
+        branch.k, branch.v = list(self.k), list(self.v)
+        return branch
+
     def extend(self, layer: int, k: torch.Tensor, v: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if self.k[layer] is not None:
             k = torch.cat((self.k[layer], k), dim=2)

@@ -1,10 +1,10 @@
 """Инференс советника (этап 8): два прохода модели с ограниченным декодированием.
 
-Проход 1 — разбор вопроса. Тип вопроса — выбор среди <T:*>. Дальше поля по одному: на каждом шаге
-модель выбирает среди разрешённых продолжений — « treatment=`колонка`» (колонка есть в этом CSV),
-« randomized=`yes`» … — или конец разбора (<DIAG>). Продолжения заранее разбиты на токены и сложены
-в префиксное дерево; на каждом шаге argmax берётся только по детям текущего узла. Поэтому модель
-физически не может назвать колонку, которой нет в данных, повторить поле или сломать формат.
+Проход 1 — разбор вопроса. Тип вопроса — выбор среди <T:*>. Дальше поля по одному: ключ поля
+(treatment, outcome, …, или конец разбора <DIAG>) — по вероятности его слова, значение — по вероятности
+всей последовательности токенов каждого разрешённого варианта: колонки из этого CSV, yes/no. Жадный
+выбор по первому токену ошибается: у `age15to24` вероятное начало «age» и невероятное продолжение.
+Модель физически не может назвать колонку, которой нет в данных, повторить поле или сломать формат.
 
 Проход 2 — после диагностик. Режим ответа — argmax по <MODE:*>. Вероятности методов — softmax по
 токенам <M:*> в позиции первого метода (её учили мягкой меткой), затем правила убирают запрещённые
@@ -37,7 +37,7 @@ GRAMMAR = {
 }
 CARD_COL = re.compile(r"^col (.+) (?:binary|integer|numeric|categorical|datetime|text|constant) uniq=")
 NUM = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?:e[+-]?\d+)?(?![\w%])")  # как в тесте этапа 3
-_LEAF = -1
+PCT = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)%")
 
 
 class ContextOverflow(ValueError):
@@ -67,16 +67,6 @@ def next_options(qtype: str, chosen: dict, columns: list[str]) -> list[tuple[str
     return out
 
 
-def build_trie(seqs: list[list[int]]) -> dict:
-    root: dict = {}
-    for i, seq in enumerate(seqs):
-        node = root
-        for t in seq:
-            node = node.setdefault(t, {})
-        node[_LEAF] = i
-    return root
-
-
 class Advisor:
     """Модель советника: parse (проход 1), rank (проход 2) и explain. Без диагностик и правил —
     это общий код пайплайна (advisor/pipeline.py)."""
@@ -92,6 +82,7 @@ class Advisor:
         self.modes = {s[6:-1]: i for s, i in self.tok.special.items() if s.startswith("<MODE:")}
         self.methods = self.pr.methods
         self.space = self.pr.text(" ")
+        self.pause = None  # вызывается после каждого прохода модели: потолок нагрузки (model.limits.GpuDuty)
 
     # ---------- общее ----------
 
@@ -106,7 +97,10 @@ class Advisor:
     @torch.no_grad()
     def _feed(self, cache: KVCache, ids: list[int]) -> torch.Tensor:
         x = torch.tensor([ids], device=self.device)
-        return self.model(x, cache=cache)[0][0, -1].float()
+        logits = self.model(x, cache=cache)[0][0, -1].float()
+        if self.pause is not None:
+            self.pause()
+        return logits
 
     @staticmethod
     def _pick(logits: torch.Tensor, allowed: list[int]) -> tuple[int, float]:
@@ -119,6 +113,18 @@ class Advisor:
     # ---------- проход 1 ----------
 
     @torch.no_grad()
+    def _logprob(self, cache: KVCache, logits: torch.Tensor, seq: list[int]) -> float:
+        """log P(seq | префикс) по ветке кэша: тензоры префикса не копируются и не меняются."""
+        lp = float(torch.log_softmax(logits, -1)[seq[0]])
+        if len(seq) > 1:
+            x = torch.tensor([seq[:-1]], device=self.device)
+            out = torch.log_softmax(self.model(x, cache=cache.fork())[0][0].float(), -1)
+            if self.pause is not None:
+                self.pause()
+            lp += float(out[torch.arange(len(seq) - 1), torch.tensor(seq[1:], device=self.device)].sum())
+        return lp
+
+    @torch.no_grad()
     def parse(self, question: str, card_text: str) -> dict:
         columns = card_columns(card_text)
         cache, logits = self._start(self.pr.pass1(card_text, question))
@@ -126,23 +132,21 @@ class Advisor:
         qtype = next(k for k, v in self.types.items() if v == t)
         fields: dict = {"type": qtype}
         logits = self._feed(cache, [t])
-        diag = self.pr.sp["DIAG"]
-        while True:
-            options = next_options(qtype, fields, columns)
-            if not options:
+        while options := next_options(qtype, fields, columns):
+            # ключ — по вероятности его слова (она уже суммирует все значения); None — конец разбора
+            keys = list(dict.fromkeys(None if o is None else o[0] for o in options))
+            key_tokens = {k: [self.pr.sp["DIAG"]] if k is None else self.pr.text(f" {k}") for k in keys}
+            key = max(keys, key=lambda k: self._logprob(cache, logits, key_tokens[k]))
+            if key is None:
                 break
-            seqs = [[diag] if o is None else self.pr.text(f" {o[0]}=`{o[1]}`") for o in options]
-            node = build_trie(seqs)
-            while True:
-                t, _ = self._pick(logits, [k for k in node if k != _LEAF])
-                node = node[t]
-                if t == diag:
-                    return fields
-                logits = self._feed(cache, [t])
-                if _LEAF in node:  # имена без обратных кавычек: законченное поле не префикс другого
-                    key, value = options[node[_LEAF]]
-                    fields[key] = value
-                    break
+            logits = self._feed(cache, key_tokens[key])
+            # значение — по вероятности всей его последовательности токенов, а не первого токена:
+            # иначе выигрывает колонка с вероятным началом и невероятным продолжением
+            n = len(key_tokens[key])
+            rest = {o[1]: self.pr.text(f" {key}=`{o[1]}`")[n:] for o in options if o is not None and o[0] == key}
+            value = max(rest, key=lambda v: self._logprob(cache, logits, rest[v]))
+            fields[key] = value
+            logits = self._feed(cache, rest[value])
         return fields
 
     # ---------- проход 2 ----------
@@ -175,20 +179,30 @@ class Advisor:
         methods = f"<MODE:{mode}> " + " ".join(f"<M:{m}> {p / top:.2f}" for m, p in probs.items())
         ids = (self._pass2(question, card_text, fields, diag) + self.tok.encode(methods)
                + [self.pr.sp["EXPL"]])
-        x = torch.tensor([ids], device=self.device)
-        max_new = min(max_new, self.model.cfg.context - len(ids))
-        out = self.model.generate(x, max_new, temperature=0.0, eos_id=self.pr.sp["EOS"])
-        new = out[0, len(ids):].tolist()
-        if new and new[-1] == self.pr.sp["EOS"]:
-            new = new[:-1]
+        cache, logits = self._start(ids)
+        new: list[int] = []
+        for _ in range(min(max_new, self.model.cfg.context - len(ids))):  # жадно, по токену с KV-кэшем
+            t = int(logits.argmax())
+            if t == self.pr.sp["EOS"]:
+                break
+            new.append(t)
+            logits = self._feed(cache, [t])
         return self.tok.decode(new).strip()
 
 
 def unsupported_numbers(text: str, source: str) -> list[str]:
     """Числа из объяснения, которых нет ни во входе модели (профиль, вопрос, диагностики),
-    ни в карточках методов (пороги вроде «F > 10» объяснение берёт оттуда)."""
-    allowed = set(NUM.findall(source)) | _card_numbers()
-    return [n for n in NUM.findall(text) if n not in allowed]
+    ни в карточках методов (пороги вроде «F > 10» объяснение берёт оттуда). Проценты сверяются
+    с долями во входе: «172%» годится, если там есть 1.72 (с точностью до округления)."""
+    found = NUM.findall(source)
+    allowed = set(found) | _card_numbers()
+    bad = [n for n in NUM.findall(text) if n not in allowed]
+    shares = [float(n) for n in found]
+    for p in PCT.findall(text):
+        v = float(p)
+        if p not in allowed and not any(abs(100 * x - v) <= 0.51 for x in shares):
+            bad.append(p + "%")
+    return bad
 
 
 def explanation_ok(text: str, source: str, top_method: str | None) -> bool:
