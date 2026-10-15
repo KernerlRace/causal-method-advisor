@@ -9,6 +9,13 @@
   "metrics": {
     "test_method_ece_raw": 0.30999699855019497,
     "test_method_ece_scaled": 0.01546787627777951,
-    "test_mode_balanced": 0.9994347088750706
-  }
+    "test_mode_balanced": 0.9994347088750706,
+    "test_parse_ece_raw": 0.01059550513061732,
+    "test_parse_ece": 0.01059550513061732,
+    "test_parse_auroc": 0.9976874361593463
+  },
+  "parse_kind": "raw",
+  "parse_w": [],
+  "parse_b": 0.0,
+  "min_parse": 0.9997987989061392
 }
