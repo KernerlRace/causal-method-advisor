@@ -17,14 +17,15 @@ The model is trained and wired into the app; the online demo runs the classical-
 hosting has no PyTorch — run the app locally to talk to the model.
 
 > **Status:** CausalGPT-mini — our own BPE tokenizer and a 34M-parameter GPT-style decoder, pretrained on Wikipedia
-> articles and a causal-inference handbook, then fine-tuned on the task — now answers through the full pipeline with
-> constrained decoding. On 93 hand-written questions it picks the right method end to end 79% of the time against 60%
-> for the classical baseline, and writes its own explanations, checked number by number against the data.
-> Its confidence is now calibrated (expected calibration error on held-out template questions 0.015 instead of 0.310), and answers it is unsure
-> of become options instead of a recommendation; on 48 trap questions it answers 44% correctly, mostly losing on parsing
-> unfamiliar datasets. When it is unsure how it read the question it now says so — *"I'm not sure the treatment is
-> `age15to24`"* — and asks to confirm the roles: that catches 110 of 112 wrong parses outside the training phrasings,
-> at the price of asking about a quarter of the right ones too. Next: questions written by other people.
+> articles and a causal-inference handbook, then fine-tuned on the task — answers through the full pipeline with
+> constrained decoding. On 93 hand-written questions the shipped run picks the right method end to end 68% of the time
+> (other runs of the same recipe: 73–79%), against 58% for the classical baseline, and writes its own explanations,
+> checked number by number against the data. Its confidence is calibrated (expected calibration error on held-out template questions 0.018
+> instead of 0.326), and answers it is unsure of become options instead of a recommendation. When treatment is almost
+> decided by the covariates, both backends now offer trimmed or matched estimates instead of a confident regression.
+> When it is unsure how it read the question it says so and asks to confirm the roles; on the Prop 99 demo the current
+> model misreads the treatment as `state` and asks about it. Next: questions written by other people, and a rebuild of
+> the panel training data.
 
 <img src="docs/img/question.png" alt="Asking about California's Proposition 99 on the demo dataset">
 
@@ -337,6 +338,91 @@ right parse, which are 7 of the 17 wrong hand-written answers. A fitted calibrat
 model has not seen, such as held-out templates in validation or questions from other people, and so does a threshold
 with fewer false alarms.
 
+### Poor overlap as an options case (stage 9, part 3)
+
+The traps showed that no rule answered "options" when treatment is almost fixed by the covariates, even with the correct
+parse. The cause was in the training gold, not in the model. The diagnostics already flag poor overlap (more than 10% of
+units with a propensity score below 0.05 or above 0.95), but in the training data the flag appeared only in RDD, where it
+holds by construction and the answer is RDD, and in 6% of the small back-door scenarios, where the gold still
+recommended regression. A case with nearly half the units outside the overlap never appeared.
+
+The fix is in the data, with no new threshold (`datagen/scenario.py`). Every back-door scenario that the existing flag
+marks gets an options answer: doubly robust estimation after trimming the units with extreme propensity scores (the
+effect where the groups overlap), or propensity score matching with a caliper (the effect for the matched units).
+Regression ranks below them because it extrapolates silently, IPW last because of its extreme weights. RDD keeps
+recommending RDD. A new scenario, `backdoor_targeted`, assigns treatment by a score of two to four covariates, from
+moderate selection (about 5% extreme propensities) to an almost deterministic rule (about 70%), on 200 to 20,000 rows;
+in 240 test draws the RDD search never mistook it for a single-variable threshold. The explanation names the problem with the
+diagnostics' own numbers and says which effect each option estimates. The scenario ranges and the rule were fixed before
+any trap or hand-written question saw a retrained model.
+
+The new scenario is drawn by a second lottery, so every other seed keeps its scenario: 2,556 of the 50,000 scenarios were
+rebuilt, 95% of the test questions are identical to stage 9's, and the before/after numbers below are close to paired.
+Training gained 4,322 poor-overlap examples (4.8%). Both backends were retrained with the stage 8 recipe: the model
+fine-tuned from the same pretrained checkpoint (21.5 minutes under the load cap, validation loss 0.0356 against 0.036),
+and the calibration fitted again on validation by the stage 9 protocol (method temperature 0.086, test calibration error
+0.326 → 0.018, the "either" rule again, 99.9% balanced accuracy on test).
+
+| | Baseline, stage 9 → now | Model, stage 9 → now |
+|---|---|---|
+| Template test, poor overlap (242): answer mode, given the parse | 0% → **100%** | 1.2% → **100%** |
+| Template test, poor overlap: best method, given the parse | 58.7% → 99.2% | 9.1% → 94.2% |
+| Template test, all 4,986: best method end to end | 83.6% → 83.9% | 98.1% → 98.8% |
+| Traps, poor overlap (12): end to end | 0% → **67%** | 0% → 8% |
+| Traps, poor overlap: given the correct parse | 0% → **100%** | 8% → **100%** |
+| Traps, all 48: end to end | 42% → **58%** | 44% → 40% |
+| Traps, all 48: given the correct parse | 75% → **100%** | 77% → **100%** |
+| Hand-written (93): best method end to end | 60.0% → 57.5% | 78.8% → 67.5% |
+| Hand-written: answer mode end to end | 69.0% → 66.7% | 83.3% → 85.7% |
+
+<sub>Model columns use the calibrated rule. The stage 9 numbers for the poor-overlap template subset were computed on the
+new test split; the rest come from the committed stage 9 results.</sub>
+
+With the correct parse, poor overlap now becomes options for both backends on every trap and every template question.
+End to end the baseline gets 8 of the 12 poor-overlap traps, and its misses are parse errors. The model gets 1, because
+it misreads the roles on these two datasets as it did in stage 9 (`income` or `age` taken as the outcome). The parse
+check from part 2 asks the user to confirm all 11 of those misreads, so on these traps the advisor is now either right or
+asks.
+
+What got worse, and why:
+- **Hand-written, method end to end, 78.8% → 67.5%.** 14 questions lost and 5 gained. None of the losses goes
+  through the overlap logic: with the correct parse the model still picks the right method on all 80. Ten are pass 1
+  reading the question differently: three Prop 99 questions where `cigsale` became the treatment and two questions that
+  mention many covariates read as heterogeneity questions (the parse check asks about all five), an instrument or a
+  hidden confounder dropped from the context (three, read with confidence above 0.9999, so not flagged), and two smaller
+  slips. All five gains are pass 1 changes the other way. Pass 1's training target did not change, so this is
+  run-to-run variation, and two control runs with another seed show it (table below). The other four losses are one close call on the A/B test demo: when the parse
+  misses that the test was randomised, difference in means and regression were already nearly tied (0.49 vs 0.41) and
+  they have now swapped (0.31 vs 0.44).
+- **Traps, no control group, 92% → 67% end to end.** Three questions about the five-week newsletter series are now
+  parsed with `emails_sent` as the treatment; with the correct parse every no-controls answer is still right.
+- **Confidence on hand-written questions** no longer separates right from wrong answers (0.92 vs 0.91, calibration error
+  0.29 instead of 0.18), because the new wrong answers are confident pass-2 answers to a wrong or incomplete parse.
+- **Parse confidence**: the refitted threshold (0.99904 instead of 0.9998) catches 78 of 83 wrong parses outside the
+  training phrasings (stage 9 model: 110 of 112). On unseen templates the model parses more questions right (90.4%
+  against 82.7%), but its confidence separates right from wrong parses less well there (AUROC 0.875 against 0.973).
+
+Two extra fine-tuning runs with another seed, one on the stage 9 data and one on the new data, separate the effect of
+the data from the noise of a single run (report only; the shipped model is the seed fixed in the protocol, not the
+better scorer):
+
+| | Stage 9 data | Stage 9.3 data |
+|---|---|---|
+| Hand-written, best method end to end, seed 0 (the shipped models) | 78.8% | 67.5% |
+| Hand-written, best method end to end, seed 1 | 72.5% | 72.5% |
+| Traps, poor overlap given the correct parse, mode token, seed 0 / seed 1 | 0% / 0% | 100% / 100% |
+| Traps, all 48 given the correct parse, mode token, seed 0 / seed 1 | 56% / 56% | 81% / 81% |
+
+With the same seed the data change leaves the hand-written score where it was, while runs differ by 5 to 11 points;
+the poor-overlap answer changes with the data in every run.
+
+So the training gold now teaches the caution it was missing, and the end-to-end gains depend on the parse. Two
+measurement problems also showed up. A single fine-tuning run moves the hand-written score by 5 to 11 points, so these
+93 questions cannot rank models trained this way, and decisions need several runs or more questions. The scenario file
+also turned out to carry synthetic-control fits from before the solver moved to cvxpy: rebuilding the panels with
+current code changes an SC flag in about a fifth of them. The panel records were kept as they were, to change only one
+thing at a time; a full rebuild comes next.
+
 ## Quick start
 
 Windows with an NVIDIA GPU, using [uv](https://docs.astral.sh/uv/):
@@ -385,10 +471,11 @@ Fine-tune, evaluate and talk to the model (needs `checkpoints/pretrain_best.pt` 
 .venv/Scripts/python.exe -m model.sft                       # token cache of the task examples
 .venv/Scripts/python.exe -m model.train_sft --init checkpoints/pretrain_best.pt --run sft_pretrained
 .venv/Scripts/python.exe -m model.train_sft --init scratch --lr 1e-3 --run sft_scratch
+.venv/Scripts/python.exe -m model.train_sft --init checkpoints/pretrain_best.pt --run sft_overlap   # the shipped model, on the stage 9.3 data
 .venv/Scripts/python.exe -m eval.run_eval --backend causalgpt --ckpt checkpoints/sft_pretrained_best.pt --name causalgpt_pretrained
 .venv/Scripts/python.exe -m eval.handwritten --backend causalgpt --ckpt checkpoints/sft_pretrained_best.pt --name causalgpt_pretrained --explain
 .venv/Scripts/python.exe -m eval.handwritten --backend baseline
-.venv/Scripts/python.exe -m model.decode export checkpoints/sft_pretrained_best.pt   # -> models/causalgpt.pt, 65 MB
+.venv/Scripts/python.exe -m model.decode export checkpoints/sft_overlap_best.pt   # -> models/causalgpt.pt, 65 MB
 .venv/Scripts/python.exe -m model.decode ask data/demo/smoking.csv "Did Prop 99 reduce cigarette sales?"
 .venv/Scripts/python.exe -m eval.calibrate collect --split val   # pass-2 logits, ~7 min per split under the load cap
 .venv/Scripts/python.exe -m eval.calibrate collect --split test
@@ -415,7 +502,7 @@ Fine-tune, evaluate and talk to the model (needs `checkpoints/pretrain_best.pt` 
 - [ ] Questions written by other people as the live test set
 - [x] Calibrated confidence, "options" mode and honest refusals, trap questions
 - [x] Confidence in the parse itself: asks to confirm the roles when unsure
-- [ ] Poor overlap taught as an options case
+- [x] Poor overlap taught as an options case
 - [ ] Evaluation against the baselines, demo scenarios
 
 The detailed design document (in Russian) is in [PLAN.md](PLAN.md).
