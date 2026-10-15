@@ -259,6 +259,58 @@ def _avoid(rec: dict, best: set, lang: str, rng) -> str | None:
 
 # ---------- объяснение ----------
 
+# как применять метод, когда группы плохо пересекаются (варианты при poor_overlap, scenario.overlap_gold)
+OVERLAP_USE = {
+    "doubly_robust": ("{} after trimming the units with extreme propensity scores: the effect for units that could "
+                      "have gone either way, not for everyone",
+                      "{} после обрезки объектов с экстремальным propensity score: эффект для тех, кто мог попасть "
+                      "в любую группу, а не для всех"),
+    "psm": ("{} with a caliper: units without a close match are dropped, so the effect is for the matched units, "
+            "usually the treated",
+            "{} с калипером: объекты без близкой пары отбрасываются, оценка относится к сопоставленным, обычно к "
+            "получившим воздействие"),
+    "matching": ("{} with a caliper: units without a comparable match are dropped, so the effect is for the matched "
+                 "units only",
+                 "{} с калипером: объекты без похожей пары отбрасываются, эффект — только для сопоставленных"),
+    "regression": ("{} keeps every unit, but where the groups do not overlap its answer is an extrapolation of the "
+                   "model",
+                   "{} использует все объекты, но там, где группы не пересекаются, её ответ — экстраполяция модели"),
+    "ipw": ("{} only after trimming: the weights of units with extreme propensity scores explode",
+            "{} — только после обрезки: веса объектов с экстремальным propensity score огромны"),
+}
+
+
+def _overlap_options(rec: dict, top: list[str], lang: str, rng) -> str:
+    """Варианты из-за слабого пересечения групп: метод зависит от того, какой эффект нужен."""
+    en = lang == "en"
+    fs = facts(rec, lang)
+    overlap = next(f for f in fs if "AUC=" in f)
+    others = [f for f in fs if f is not overlap][: int(rng.integers(0, 2))]
+    out = [str(rng.choice([
+        "The groups barely overlap, so there is no single safe answer: the right method depends on which effect "
+        "you need.",
+        "The treatment here is almost decided by the covariates, so the treated and untreated groups barely overlap.",
+    ])) if en else "Группы почти не пересекаются, поэтому одного надёжного ответа нет: метод зависит от того, "
+                   "какой эффект вам нужен."]
+    out.append(overlap + (" For these units there is no comparable unit in the other group, so the effect for "
+                          "everyone can only be extrapolated." if en else
+                          " Для них в другой группе нет сравнимых объектов, и эффект для всех можно получить "
+                          "только экстраполяцией."))
+    out += others
+    out.append("Options:" if en else "Варианты:")
+    for m in top:
+        use = OVERLAP_USE.get(m)
+        out.append("- " + (use[0 if en else 1].format(name(m, lang)) + "." if use else
+                           f"{name(m, lang)}: {CARDS[m].summary if en else CARDS[m].summary_ru}"))
+    if (av := _avoid(rec, set(top), lang, rng)):
+        out.append(av)
+    out.append("Whichever you choose, report how many units are dropped and how they differ from the rest." if en
+               else "Что бы вы ни выбрали, сообщите, сколько объектов отброшено и чем они отличаются от остальных.")
+    out.append(("Assumptions to check: " if en else "Проверьте допущения: ")
+               + "; ".join(assumptions(top[0], lang, rng)) + ".")
+    return "\n".join(out)
+
+
 def _refuse_no_method(rec: dict, lang: str) -> str:
     """Отказ не из-за скрытого конфаундера: правила запретили всё, что подошло бы по виду данных и вопросу
     (в обучающих данных таких отказов нет — там отказ всегда про скрытый конфаундер)."""
@@ -316,6 +368,10 @@ def explain(rec: dict, lang: str, rng) -> str:
     top = [m for m, w in ranked if w >= 0.9]
     fs = facts(rec, lang)[: int(rng.integers(1, 4))]
     out = []
+    flags = _flags(rec)
+    if (mode == "options" and "poor_overlap" in flags and "running_variable_found" not in flags
+            and (d := rec["diagnostics"].get("overlap")) and d["applicable"]):
+        return _overlap_options(rec, top, lang, rng)
     if mode == "options":
         names = _join([name(m, lang) for m in top], lang)
         out.append(str(rng.choice([f"Several methods fit this data about equally well: {names}.",

@@ -29,7 +29,13 @@ REGISTRY: dict[str, tuple[Callable[[np.random.Generator], Scenario], float]] = {
     "discovery_nongaussian": (disc.discovery_nongaussian, 0.5),
     "discovery_gaussian": (disc.discovery_gaussian, 0.4),
     "discovery_hidden": (disc.discovery_hidden, 0.3),
+    "backdoor_targeted": (cs.backdoor_targeted, 0.6),
 }
+
+# Добавленные после первого набора данных (этап 9): разыгрываются вторым жребием, который с вероятностью
+# w / (сумма весов до него и его) заменяет уже выбранное имя. Доли остаются w / сумма всех весов, а
+# остальные сиды дают прежние сценарии — старый test можно сравнивать с новым почти пример в пример.
+ADDED = ("backdoor_targeted",)
 
 
 def generate(name: str, seed: int) -> Scenario:
@@ -37,6 +43,12 @@ def generate(name: str, seed: int) -> Scenario:
 
 
 def sample_name(rng: np.random.Generator) -> str:
-    names = list(REGISTRY)
+    names = [n for n in REGISTRY if n not in ADDED]
     w = np.array([REGISTRY[n][1] for n in names])
-    return names[int(rng.choice(len(names), p=w / w.sum()))]
+    name = names[int(rng.choice(len(names), p=w / w.sum()))]
+    total = float(w.sum())
+    for extra in ADDED:
+        total += REGISTRY[extra][1]
+        if rng.random() < REGISTRY[extra][1] / total:
+            name = extra
+    return name

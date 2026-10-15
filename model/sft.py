@@ -98,13 +98,14 @@ class Prompter:
 
 # ---------- набор примеров на диске ----------
 
-def build_cache(split: str, out: Path, tokenizer: Path = TOKENIZER, limit: int | None = None) -> int:
+def build_cache(split: str, out: Path, tokenizer: Path = TOKENIZER, limit: int | None = None,
+                sft_dir: Path = SFT_DIR) -> int:
     tok = BPETokenizer.load(tokenizer)
     pr = Prompter(tok)
     method_ids = sorted(pr.methods.values())
     col = {t: j for j, t in enumerate(method_ids)}
     ids, target, offsets, soft_pos, soft = [], [], [0], [], []
-    for rec in read_jsonl(SFT_DIR / f"{split}.jsonl", limit):
+    for rec in read_jsonl(sft_dir / f"{split}.jsonl", limit):
         e = pr.encode(rec)
         ids.extend(e.ids)
         target.extend(e.target)
@@ -190,11 +191,13 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--splits", nargs="+", default=["train", "val", "test"])
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--sft", type=Path, default=SFT_DIR, help="папка с train/val/test.jsonl (datagen.build_sft)")
+    ap.add_argument("--out", type=Path, default=TOKENS_DIR)
     args = ap.parse_args()
     for split in args.splits:
         t0 = time.time()
-        out = TOKENS_DIR / f"sft_examples_{split}.npz"
-        n = build_cache(split, out, limit=args.limit)
+        out = args.out / f"sft_examples_{split}.npz"
+        n = build_cache(split, out, limit=args.limit, sft_dir=args.sft)
         data = SFTData(out)
         L = data.lengths
         print(f"{out.name}: {n:,} examples, {L.sum():,} tokens, {data.target.sum():,} in the loss; "

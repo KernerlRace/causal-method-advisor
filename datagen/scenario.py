@@ -52,6 +52,41 @@ def answer_mode(gold: dict[str, float], refuse: bool = False) -> str:
     return "options" if sum(w >= 0.9 for w in gold.values()) >= 2 else "recommend"
 
 
+# сценарии с наблюдаемыми конфаундерами (и без порога): здесь слабое пересечение групп меняет ответ.
+# В RDD пересечения нет по построению, и это не мешает: эффект оценивается у порога.
+BACKDOOR = ("backdoor_small", "backdoor_large", "backdoor_targeted")
+LARGE_BACKDOOR_ROWS = 3000  # с этого размера back-door сценарий устроен как backdoor_large (DML / DR)
+
+
+def backdoor_gold(n_rows: int, k: int) -> dict[str, float]:
+    """Эталон back-door при нормальном пересечении: мало строк — регрессия, много — DML и DR
+    (нелинейность и линейность уточняет reconcile_gold)."""
+    if n_rows >= LARGE_BACKDOOR_ROWS:
+        return {"dml": 1.0, "doubly_robust": 1.0, "causal_forest": 0.6, "ipw": 0.3, "psm": 0.3, "regression": 0.2}
+    return {"regression": 1.0, "psm": 0.6, "ipw": 0.5, "matching": 0.6 if k <= 4 else 0.3, "doubly_robust": 0.4}
+
+
+def overlap_gold(n_rows: int, k: int, nonlinear: bool) -> dict[str, float]:
+    """Эталон при флаге poor_overlap: больше POOR_OVERLAP_SHARE (10%) объектов с propensity score
+    ближе EXTREME_PS (0.05) к 0 или 1 (advisor/diagnostics.py).
+
+    Для таких объектов в другой группе нет сравнимых, и эффект «для всех» оценивается только
+    экстраполяцией модели. Честный ответ — варианты: какой эффект оценивать, решает пользователь.
+    Дважды робастная оценка после обрезки по propensity score — эффект там, где группы пересекаются;
+    мэтчинг с калипером — эффект для тех, кому нашлась пара. Регрессия ниже: она молча экстраполирует;
+    IPW последним: экстремальные веса. Если методу не хватает строк (min_rows из карточки), в варианты
+    поднимается следующий, чтобы их всегда было два.
+    """
+    g = prune_gold({"doubly_robust": 1.0, "psm": 0.9, "matching": 0.6 if k <= 4 else 0.3,
+                    "regression": 0.3 if nonlinear else 0.5, "ipw": 0.2}, n_rows)
+    ranked = sorted(g, key=g.get, reverse=True)
+    if ranked:
+        g[ranked[0]] = 1.0
+    if len(ranked) > 1:
+        g[ranked[1]] = max(g[ranked[1]], 0.9)
+    return g
+
+
 def reconcile_gold(name: str, gold: dict[str, float], flags: set[str], params: dict) -> dict[str, float]:
     """Согласует эталон с тем, что реально показали диагностики.
 
@@ -60,6 +95,10 @@ def reconcile_gold(name: str, gold: dict[str, float], flags: set[str], params: d
     должен совпадать с его выбором, иначе обучающие примеры противоречат своему же входу.
     """
     g = dict(gold)
+    if name == "backdoor_targeted":  # отбор оказался мягким — как back-door сценарий того же размера
+        if "poor_overlap" not in flags:
+            g = backdoor_gold(params["n"], params["k"])
+        name = "backdoor_large" if params["n"] >= LARGE_BACKDOOR_ROWS else "backdoor_small"
     if name == "panel_parallel" and "pretrend_violated" in flags:
         g = {"sdid": 1.0, "did": 0.5, "synthetic_control": 0.2}
     if name == "panel_factor":
@@ -80,6 +119,8 @@ def reconcile_gold(name: str, gold: dict[str, float], flags: set[str], params: d
         g["regression"] = 0.6
     if name == "backdoor_small" and "nonlinear" in flags:
         g = {"regression": 0.6, "doubly_robust": 1.0, "psm": 0.6, "ipw": 0.5}
+    if name in BACKDOOR and "poor_overlap" in flags:
+        g = overlap_gold(params["n"], params["k"], "nonlinear" in flags)
     if name.startswith("discovery") and name != "discovery_hidden":
         if "gaussian_data" in flags:
             g = {"pc": 1.0, "ges": 1.0, "notears": 0.6, "fci": 0.6, "lingam": 0.1}

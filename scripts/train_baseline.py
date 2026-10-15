@@ -42,7 +42,7 @@ class _Bundle:
     def parse(self, q, card_text):
         return self.parser.predict(q, card_text)
 
-    def rank(self, *a):
+    def rank(self, *a, **context):  # вопрос и профиль (question=, card_text=) ранжировщику бейзлайна не нужны
         return self.ranker.predict(*a)
 
 
@@ -51,6 +51,7 @@ def main():
     ap.add_argument("--sft", default="data/sft")
     ap.add_argument("--scenarios", default="data/scenarios/scenarios_seed*.jsonl")
     ap.add_argument("--max-parser", type=int, default=40000)
+    ap.add_argument("--out", type=Path, default=MODELS_DIR / "baseline.joblib")
     a = ap.parse_args()
 
     t0 = time.perf_counter()
@@ -60,9 +61,9 @@ def main():
     print(f"parser on {len(train_ex)} questions, ranker on {len(train_rec)} scenarios")
     parser = QuestionParser().fit(train_ex)
     ranker = MethodRanker().fit(train_rec)
-    MODELS_DIR.mkdir(exist_ok=True)
-    joblib.dump({"parser": parser, "ranker": ranker}, MODELS_DIR / "baseline.joblib", compress=3)
-    print(f"trained in {time.perf_counter() - t0:.0f}s -> {MODELS_DIR / 'baseline.joblib'}")
+    a.out.parent.mkdir(exist_ok=True)
+    joblib.dump({"parser": parser, "ranker": ranker}, a.out, compress=3)
+    print(f"trained in {time.perf_counter() - t0:.0f}s -> {a.out}")
 
     by_id = {r["id"]: r for r in records}
     val_ex = [e for e in read_jsonl(f"{a.sft}/val.jsonl") if e["scenario_id"] in by_id][:3000]
