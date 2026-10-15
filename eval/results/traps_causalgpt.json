@@ -1,0 +1,102 @@
+{
+  "unidentifiable": {
+    "n": 12,
+    "correct": 0.167,
+    "parse_ok": 0.333,
+    "modes": {
+      "refuse": 4,
+      "options": 1,
+      "recommend": 7,
+      "error": 0
+    },
+    "needs_controls_recommended": 0,
+    "correct_gold_parse": 1.0,
+    "correct_token": 0.167,
+    "modes_token": {
+      "refuse": 2,
+      "options": 1,
+      "recommend": 9
+    },
+    "correct_gold_parse_token": 1.0
+  },
+  "no_controls": {
+    "n": 12,
+    "correct": 0.917,
+    "parse_ok": 0.917,
+    "modes": {
+      "refuse": 3,
+      "options": 9,
+      "recommend": 0,
+      "error": 0
+    },
+    "needs_controls_recommended": 0,
+    "correct_gold_parse": 1.0,
+    "correct_token": 0.25,
+    "modes_token": {
+      "refuse": 3,
+      "options": 0,
+      "recommend": 9
+    },
+    "correct_gold_parse_token": 0.25
+  },
+  "prediction": {
+    "n": 12,
+    "correct": 0.667,
+    "parse_ok": 0.667,
+    "modes": {
+      "refuse": 10,
+      "options": 0,
+      "recommend": 2,
+      "error": 0
+    },
+    "needs_controls_recommended": 0,
+    "correct_gold_parse": 1.0,
+    "correct_token": 0.667,
+    "modes_token": {
+      "refuse": 10,
+      "options": 0,
+      "recommend": 2
+    },
+    "correct_gold_parse_token": 1.0
+  },
+  "poor_overlap": {
+    "n": 12,
+    "correct": 0.0,
+    "parse_ok": 0.0,
+    "modes": {
+      "refuse": 2,
+      "options": 3,
+      "recommend": 7,
+      "error": 0
+    },
+    "needs_controls_recommended": 0,
+    "correct_gold_parse": 0.083,
+    "correct_token": 0.0,
+    "modes_token": {
+      "refuse": 2,
+      "options": 1,
+      "recommend": 9
+    },
+    "correct_gold_parse_token": 0.0
+  },
+  "all": {
+    "n": 48,
+    "correct": 0.438,
+    "parse_ok": 0.479,
+    "modes": {
+      "refuse": 19,
+      "options": 13,
+      "recommend": 16,
+      "error": 0
+    },
+    "needs_controls_recommended": 0,
+    "correct_gold_parse": 0.771,
+    "correct_token": 0.271,
+    "modes_token": {
+      "refuse": 17,
+      "options": 2,
+      "recommend": 29
+    },
+    "correct_gold_parse_token": 0.562
+  }
+}

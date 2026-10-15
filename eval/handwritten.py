@@ -40,12 +40,13 @@ def canonical(gold: dict) -> dict:
 
 
 class Analyses:
-    def __init__(self):
+    def __init__(self, base: Path = ROOT / "data" / "demo"):
+        self.base = base
         self.frames, self.cards, self.cache = {}, {}, {}
 
     def card(self, file: str):
         if file not in self.cards:
-            self.frames[file] = load_csv(ROOT / "data" / "demo" / file)
+            self.frames[file] = load_csv(self.base / file)
             self.cards[file] = profile(self.frames[file])
         return self.cards[file]
 
@@ -68,6 +69,12 @@ def rank(backend, an: Analyses, q: dict, fields: dict) -> tuple[dict, str]:
     return probs, mode
 
 
+def token_mode(backend, mode: str) -> str:
+    """Режим, который выдал бы пайплайн этапа 8: токен <MODE:*> модели (отказы по правилам и типу — те же)."""
+    last = getattr(backend, "last", None)
+    return mode if last is None or not last.probs else last.token_mode
+
+
 def evaluate_handwritten(backend, questions: list[dict], explain: bool = False) -> tuple[dict, list[dict]]:
     an = Analyses()
     s = defaultdict(list)
@@ -86,27 +93,34 @@ def evaluate_handwritten(backend, questions: list[dict], explain: bool = False) 
         s["parse.context (iv/mediator/threshold/rct/hidden)"].append(context_ok)
         s["parse.exact"].append(exact)
         s[f"parse.treatment+outcome ({q['lang']})"].append(roles_ok)
-        row = {"id": q["id"], "file": q["file"], "lang": q["lang"], "question": q["question"], "gold": gold, "pred": pred}
+        row = {"id": q["id"], "file": q["file"], "lang": q["lang"], "question": q["question"], "gold": gold, "pred": pred,
+               "best": q["best"]}
 
         if q["best"] is not None:
             probs, mode = rank(backend, an, q, canonical(gold))
             s["top1 (gold parse)"].append(bool(probs) and next(iter(probs)) in q["best"])
             row["methods_gold_parse"] = dict(list(probs.items())[:3])
-        e2e_probs, e2e_mode, top1 = {}, None, False
-        if roles_ok:
-            try:
-                e2e_probs, e2e_mode = rank(backend, an, q, pred)
-            except AdviceError:
-                pass
+        # ответ по разбору модели — тот, что увидел бы пользователь; засчитывается только при верных ролях
+        e2e_probs, e2e_mode, e2e_token, conf, top1 = {}, None, None, None, False
+        try:
+            e2e_probs, e2e_mode = rank(backend, an, q, pred)
+            e2e_token = token_mode(backend, e2e_mode)
+            last = getattr(backend, "last", None)
+            conf = last.confidence if last is not None and getattr(backend, "calibrated", False) else None
+        except AdviceError:
+            pass
         if q["best"] is not None:
             top1 = roles_ok and bool(e2e_probs) and next(iter(e2e_probs)) in q["best"]
             s["top1 end-to-end"].append(top1)
             s[f"top1 end-to-end ({q['lang']})"].append(top1)
         if q["mode"] is not None:
             s["mode end-to-end"].append(roles_ok and e2e_mode == q["mode"])
+            if hasattr(backend, "last"):
+                s["mode end-to-end, model's mode token"].append(roles_ok and e2e_token == q["mode"])
         if gold["type"] == "not_causal":
             s["not-causal questions refused"].append(roles_ok and e2e_mode == "refuse")
-        row.update(methods=dict(list(e2e_probs.items())[:3]), mode=e2e_mode, top1_ok=top1)
+        row.update(methods=dict(list(e2e_probs.items())[:3]), mode=e2e_mode, token_mode=e2e_token,
+                   confidence=conf, top1_ok=top1)
 
         if explain and hasattr(backend, "explain") and roles_ok and gold["type"] != "not_causal" and e2e_mode:
             query, dd, vd = an.run(q["file"], pred)
@@ -115,7 +129,23 @@ def evaluate_handwritten(backend, questions: list[dict], explain: bool = False) 
             row["explanation"] = text
         rows.append(row)
     metrics = {k: f"{np.mean(v):.3f}  (n={len(v)})" for k, v in sorted(s.items())}
+    metrics.update(confidence_report(rows))
     return metrics, rows
+
+
+def confidence_report(rows: list[dict]) -> dict:
+    """Калиброванная уверенность против сквозной правоты (только отчёт: на этих вопросах ничего не подбирается)."""
+    from advisor.confidence import reliability
+
+    pts = [(r["confidence"], r["top1_ok"]) for r in rows if r.get("confidence") is not None and r["best"] is not None]
+    if not pts:
+        return {}
+    c, ok = np.array([p[0] for p in pts]), np.array([p[1] for p in pts], float)
+    ece, _ = reliability(c, ok, bins=10)
+    out = {"confidence: mean when top1 right": f"{c[ok == 1].mean():.3f}  (n={int(ok.sum())})" if ok.any() else "-",
+           "confidence: mean when top1 wrong": f"{c[ok == 0].mean():.3f}  (n={int((1 - ok).sum())})" if (ok == 0).any() else "-",
+           "confidence: ECE end to end (10 bins)": f"{ece:.3f}  (n={len(pts)})"}
+    return out
 
 
 def main() -> None:
