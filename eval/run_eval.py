@@ -34,6 +34,9 @@ def main():
     examples = [e for e in read_jsonl(f"{a.sft}/{a.split}.jsonl") if e["scenario_id"] in records]
     if a.limit and a.limit < len(examples):
         examples = examples[::len(examples) // a.limit][:a.limit]
+    if a.backend == "causalgpt":
+        from model.limits import GpuDuty
+        backend.model.pause = GpuDuty(backend.model.device).step
     metrics = evaluate_backend(backend, examples, records)
     name = a.name or a.backend
     print(f"{name} on {a.split}: {len(examples)} questions")

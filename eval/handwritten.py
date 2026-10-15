@@ -124,13 +124,17 @@ def main() -> None:
     ap.add_argument("--ckpt", type=Path, help="чекпойнт для causalgpt")
     ap.add_argument("--name", help="имя в eval/results (по умолчанию — имя бэкенда)")
     ap.add_argument("--explain", action="store_true", help="ещё проверить объяснения модели фактами")
+    ap.add_argument("--device", help="cpu / cuda (по умолчанию — cuda, если есть)")
     args = ap.parse_args()
 
     from threadpoolctl import threadpool_limits
     threadpool_limits(max(1, int((os.cpu_count() or 1) * 0.75)))  # потолок нагрузки на CPU
-    kw = {"ckpt": args.ckpt} if args.ckpt else {}
+    kw = {k: v for k, v in (("ckpt", args.ckpt), ("device", args.device)) if v}
     backend = load_backend(args.backend, **kw)
     questions = [json.loads(line) for line in QUESTIONS.open(encoding="utf-8")]
+    if args.backend == "causalgpt":
+        from model.limits import GpuDuty
+        backend.model.pause = GpuDuty(backend.model.device).step
     metrics, rows = evaluate_handwritten(backend, questions, explain=args.explain)
     name = args.name or args.backend
     print(f"{name} on {len(questions)} hand-written questions")
