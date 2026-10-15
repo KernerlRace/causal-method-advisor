@@ -191,3 +191,26 @@ def test_neural_backend_reports_calibrated_confidence_only_for_its_own_model(tmp
     Calibration(model_sha="something else").save(path)
     plain = NeuralBackend(model, "cpu", calibration=path)
     assert not plain.calibrated and advise(rct, q, plain, fields=fields).confidence is None
+
+
+# ---------- выбор порогов на val (eval/calibrate.py) ----------
+
+def test_threshold_search_finds_a_separating_rule(tmp_path):
+    from eval.calibrate import Scores, allowed_methods, search_thresholds
+
+    assert allowed_methods("flags x\nallowed did sdid\nwarning -") == {"did", "sdid"}
+    rng = np.random.default_rng(1)
+    names = ["did", "sdid", "sensitivity_analysis"]
+    n = 300
+    kind = rng.choice(["recommend", "options", "refuse"], n)
+    z = np.full((n, 3), -4.0)
+    z[kind == "recommend", 0] = 4.0
+    z[kind == "options", 0] = z[kind == "options", 1] = 3.0
+    z[kind == "refuse", 2] = 4.0
+    gold = np.where(z > 0, 1.0, 0.0)
+    mode_logits = np.zeros((n, 3))
+    np.savez(tmp_path / "s.npz", mode_logits=mode_logits, method_logits=z, allowed=np.ones((n, 3), bool),
+             gold=gold, names=np.array(names), gold_mode=kind, qtype=np.array(["effect"] * n),
+             scenario=kind, ckpt="x", model_sha="0")
+    bal, a, g = search_thresholds(Scores(tmp_path / "s.npz"), 1.0, "confidence")
+    assert bal == pytest.approx(1.0) and (a > 0.5 or g > 0)
