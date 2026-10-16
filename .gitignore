@@ -30,3 +30,6 @@ Questions_for_teacher.pdf
 docs/questions_for_teacher*.md
 data/*.log
 data/tokens/
+
+# отчёт для преподавателя собирается из docs/evaluation_en.md
+Evaluation_report.pdf
