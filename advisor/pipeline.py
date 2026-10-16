@@ -138,6 +138,7 @@ class Advice:
     confidence: float | None = None  # калиброванная вероятность, что лучший метод верен (только нейросеть)
     parse_confidence: float | None = None  # калиброванная вероятность, что тип и роли разобраны верно
     confirm: str | None = None  # что попросить подтвердить (type / treatment / outcome / target): разбор неуверенный
+    assumptions: list[str] = field(default_factory=list)  # допущения о ролях, которые данные проверить не могут
 
 
 def detect_lang(question: str) -> str:
@@ -192,6 +193,21 @@ def weights_for_explanation(probs: dict[str, float], mode: str) -> dict[str, flo
     return w
 
 
+def role_assumptions(fields: dict) -> list[str]:
+    """Инструмент и медиатор словами: данные их не различают (со скрытым конфаундером оба связаны и с воздействием,
+    и с исходом, а исключающее ограничение и полную медиацию проверить нельзя), а от этой роли зависит выбор между
+    IV и front-door. Поэтому прочитанную из вопроса роль показываем пользователю всегда, при любой уверенности."""
+    t, y = fields.get("treatment"), fields.get("outcome")
+    out = []
+    if fields.get("instrument") and t and y:
+        out.append(f"`{fields['instrument']}` is an **instrument**: it shifts `{t}`, and it affects `{y}` only "
+                   f"through `{t}` — not directly and not through a common cause.")
+    if fields.get("mediator") and t and y:
+        out.append(f"`{fields['mediator']}` is a **mediator**: `{t}` affects `{y}` only through "
+                   f"`{fields['mediator']}`, and the hidden confounder does not act on `{fields['mediator']}` directly.")
+    return out
+
+
 def advise(df: pd.DataFrame, question: str, backend: Backend, fields: dict | None = None) -> Advice:
     from datagen.explanations import explain
 
@@ -199,8 +215,10 @@ def advise(df: pd.DataFrame, question: str, backend: Backend, fields: dict | Non
     card_text = card.to_text()
     notes = []
     parse_conf, confirm = None, None  # разбор, заданный пользователем, не проверяем
+    assumptions = []
     if fields is None:
         fields = backend.parse(question, card_text)
+        assumptions = role_assumptions(fields)
         if hasattr(backend, "parse_check"):
             parse_conf, confirm = backend.parse_check()
     query = query_from_fields(fields, list(df.columns))
@@ -231,4 +249,4 @@ def advise(df: pd.DataFrame, question: str, backend: Backend, fields: dict | Non
         seed = int(hashlib.md5(question.encode()).hexdigest(), 16) % (2 ** 32)
         text = explain(rec, lang, np.random.default_rng(seed))
     return Advice(lang, fields, card, diags, verdicts, probs, mode, text, backend.name, notes, source, confidence,
-                  parse_conf, confirm)
+                  parse_conf, confirm, assumptions)
