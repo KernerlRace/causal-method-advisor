@@ -91,7 +91,7 @@ On Prop 99 the model reads the roles correctly but its parse confidence is below
 
 ## Where it fails
 
-- **A confident misreading of a role.** On the front-door demo the model reads the mediator `skills_score` ("remote work affects productivity only through the skills score") as an instrument, with parse confidence 0.99999, above the threshold that would ask the user. Once the parse is wrong, the rest of the pipeline is consistent with it: IV is allowed and recommended with confidence 1.00. With the correct parse the model recommends front-door. Neither the calibrated confidence nor the parse check can see an error the model is sure of.
+- **A confident misreading of a role.** On the front-door demo the model reads the mediator `skills_score` ("remote work affects productivity only through the skills score") as an instrument, with parse confidence 0.99999, above the threshold that would ask the user. Once the parse is wrong, the rest of the pipeline is consistent with it: IV is allowed and recommended with confidence 1.00. With the correct parse the model recommends front-door. Neither the calibrated confidence nor the parse check can see an error the model is sure of. Since this report the app states every parsed instrument or mediator in plain words and asks the user to check it (next section).
 - **Context said in unfamiliar words** ("randomly assigned the flag", "a hard cutoff on appraisal_score") is missed, although the same fields are almost always right on template questions.
 - **Run-to-run variation** is larger than the effects we try to measure on 93 questions.
 - **The panel training data** still carries synthetic-control fits from before the optimiser changed; rebuilding the panels with the current code changes a synthetic-control flag in about a fifth of them.
@@ -100,7 +100,7 @@ On Prop 99 the model reads the roles correctly but its parse confidence is below
 ## What would improve it next
 
 - **Questions written by other people** — the single most useful thing. They are the only test that is not shaped by the people who wrote the grammar, and more questions would let us tell close models apart.
-- **Always confirming a named instrument or mediator.** The data cannot tell them apart: with a hidden confounder both are associated with the treatment and the outcome, and neither the exclusion restriction nor full mediation can be tested. The app should state the assumption in words ("`skills_score` shifts the treatment but affects the outcome only through it — right?") whenever the parse uses one. This would catch the front-door misreading without retraining.
+- **Always confirming a named instrument or mediator** — done after this evaluation. The data cannot tell them apart: with a hidden confounder both are associated with the treatment and the outcome, and neither the exclusion restriction nor full mediation can be tested. Whenever the parse uses one, the app now states the assumption in words ("`skills_score` is an instrument: it shifts `remote_work`, and it affects `productivity` only through `remote_work`") and marks the field to check. It changes no number above; it makes the front-door misreading visible to the user without retraining.
 - **An auxiliary loss on the question text**, so the parse generalises to unseen phrasings again (the question type on unseen templates was 92.0% when the loss covered the whole sequence, 82.7–90.4% with the loss on the answer only).
 - **Several fine-tuning runs per decision**, or an average of their predictions, instead of one run.
 
