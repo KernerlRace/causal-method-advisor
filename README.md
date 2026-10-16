@@ -19,13 +19,16 @@ hosting has no PyTorch — run the app locally to talk to the model.
 > **Status:** CausalGPT-mini — our own BPE tokenizer and a 34M-parameter GPT-style decoder, pretrained on Wikipedia
 > articles and a causal-inference handbook, then fine-tuned on the task — answers through the full pipeline with
 > constrained decoding. On 93 hand-written questions the shipped run picks the right method end to end 68% of the time
-> (other runs of the same recipe: 73–79%), against 58% for the classical baseline, and writes its own explanations,
+> (other runs of the same recipe: 73–79%), against 58% for the classical baseline — a gap that is clear for the recipe
+> but not for the shipped run alone (see [Evaluation](#evaluation-against-the-baseline-stage-10)) — and writes its own explanations,
 > checked number by number against the data. Its confidence is calibrated (expected calibration error on held-out template questions 0.018
 > instead of 0.326), and answers it is unsure of become options instead of a recommendation. When treatment is almost
 > decided by the covariates, both backends now offer trimmed or matched estimates instead of a confident regression.
-> When it is unsure how it read the question it says so and asks to confirm the roles; on the Prop 99 demo the current
-> model misreads the treatment as `state` and asks about it. Next: questions written by other people, and a rebuild of
-> the panel training data.
+> When it is unsure how it read the question it says so and asks to confirm the roles; on the Prop 99 demo it reads the
+> roles right but less surely than usual, and asks about the treatment. An instrument or a mediator read from the
+> question is always stated in words for the user to check, because the data cannot tell the two apart.
+> The evaluation report for the course is [docs/evaluation_en.md](docs/evaluation_en.md). Next: questions written by
+> other people, and a rebuild of the panel training data.
 
 <img src="docs/img/question.png" alt="Asking about California's Proposition 99 on the demo dataset">
 
@@ -89,6 +92,7 @@ facts is used, and the UI says so.
 | `advisor/confidence.py` | calibrated confidence and the answer mode: temperature-scaled method probabilities, recommend / options / refuse; confidence in the parse and when to ask the user to confirm it; plain NumPy, so the app needs no PyTorch for it |
 | `eval/calibrate.py` | fits the temperature, the answer-mode rule and the parse-confidence threshold on the validation split and reports on test (`models/calibration.json`, `eval/results/calibration.json`) |
 | `eval/traps.py`, `eval/trap_questions.jsonl`, `data/traps/` | 48 trap questions where a confident recommendation is wrong — hidden confounding, no control group, prediction, poor overlap — on six datasets built by `scripts/make_traps.py` |
+| `eval/demos.py`, `eval/summary.py` | the 12 demo questions through the full pipeline against a fixed gold; one table of all results with a paired comparison against the baseline |
 | `datagen/corpus.py` | pretraining corpus: Wikipedia EN/RU articles on statistics, econometrics, causal inference and ML (plus everyday domains), Facure's handbook, our method cards and explanations; resumable polite fetching, cleaning, deduplication, document-level train/val split |
 | `data/demo/` | 12 demo datasets with questions, including the real Prop 99 data |
 
@@ -427,6 +431,42 @@ also turned out to carry synthetic-control fits from before the solver moved to 
 current code changes an SC flag in about a fifth of them. The panel records were kept as they were, to change only one
 thing at a time; a full rebuild comes next.
 
+### Evaluation against the baseline (stage 10)
+
+All results in one table, built from the committed result files by `python -m eval.summary`
+([eval/results/summary.md](eval/results/summary.md)); the write-up is [docs/evaluation_en.md](docs/evaluation_en.md).
+The model is the shipped run with the calibrated answer mode:
+
+| Set | Metric | Baseline | Model |
+|---|---|---|---|
+| Template test (4,986) | Best method, end to end | 83.9% | **98.8%** |
+| Template test | Question type, unseen templates | 79.9% | **90.4%** |
+| Hand-written (93) | Best method, end to end | 57.5% | **67.5%** |
+| Hand-written | Answer mode, end to end | 66.7% | **85.7%** |
+| Hand-written | Treatment and outcome (Russian) | 64.5% (54.2%) | **84.9% (91.7%)** |
+| Hand-written | Question type | **94.6%** | 89.2% |
+| Traps (48) | End to end / given the correct parse | **58.3%** / 100% | 39.6% / 100% |
+| Demo questions (12) | Parse, method and mode as expected | 11 | 11 |
+
+Paired with the baseline question by question (bootstrap interval, exact McNemar test), every run of the recipe is
+ahead on the hand-written questions, but the shipped run alone is not significantly so:
+
+| Model run | Best method end to end | Difference | 95% interval | p |
+|---|---|---|---|---|
+| Shipped (seed 0, stage 9.3 data) | 67.5% | +10.0 | −1.2 to +21.2 | 0.15 |
+| Seed 1, stage 9.3 data | 72.5% | +15.0 | +3.8 to +26.2 | 0.02 |
+| Seed 1, stage 9 data | 72.5% | +15.0 | +3.8 to +26.2 | 0.02 |
+| Stage 8 (seed 0) | 78.8% | +21.3 | +8.8 to +32.5 | 0.002 |
+
+The 12 demo questions (`python -m eval.demos`, gold written before the first run) show one failure each. The baseline
+reads `urban_share` as the outcome of the tax question. The model recommends IV on the front-door demo with confidence
+1.00: it reads the mediator `skills_score` as an instrument, with a parse confidence of 0.99999, above the threshold
+that would ask the user. Neither confidence can see an error the model is sure of, and the data cannot settle it: with
+a hidden confounder an instrument and a mediator are both associated with the treatment and the outcome, and neither
+the exclusion restriction nor full mediation is testable. So the app now states every instrument or mediator read from
+the question in plain words — *"`skills_score` is an instrument: it shifts `remote_work`, and it affects `productivity`
+only through `remote_work`"* — and marks the field to check. This changes no number above.
+
 ## Quick start
 
 Windows with an NVIDIA GPU, using [uv](https://docs.astral.sh/uv/):
@@ -490,6 +530,9 @@ Fine-tune, evaluate and talk to the model (needs `checkpoints/pretrain_best.pt` 
 .venv/Scripts/python.exe scripts/make_traps.py                   # -> data/traps/
 .venv/Scripts/python.exe -m eval.traps --backend causalgpt       # and --backend baseline
 .venv/Scripts/python.exe -m eval.handwritten --backend causalgpt --name causalgpt_calibrated --explain
+.venv/Scripts/python.exe -m eval.demos --backend causalgpt       # and --backend baseline
+.venv/Scripts/python.exe -m eval.summary                         # -> eval/results/summary.md
+.venv/Scripts/python.exe scripts/md_to_pdf.py docs/evaluation_en.md Evaluation_report.pdf
 .venv/Scripts/streamlit run app.py                          # the model appears in the sidebar
 ```
 
@@ -507,7 +550,7 @@ Fine-tune, evaluate and talk to the model (needs `checkpoints/pretrain_best.pt` 
 - [x] Calibrated confidence, "options" mode and honest refusals, trap questions
 - [x] Confidence in the parse itself: asks to confirm the roles when unsure
 - [x] Poor overlap taught as an options case
-- [ ] Evaluation against the baselines, demo scenarios
+- [x] Evaluation against the baseline, demo scenarios, evaluation report
 
 The detailed design document (in Russian) is in [PLAN.md](PLAN.md).
 
