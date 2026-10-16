@@ -33,3 +33,5 @@ data/tokens/
 
 # отчёт для преподавателя собирается из docs/evaluation_en.md
 Evaluation_report.pdf
+docs/questions_for_people*.md
+Questions_for_*.pdf
