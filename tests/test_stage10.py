@@ -46,3 +46,25 @@ def test_baseline_demos_match_committed_results():
     saved = json.loads((ROOT / "eval" / "results" / "demos_baseline.json").read_text(encoding="utf-8"))
     assert [(r["file"], r["top"], r["mode"], r["correct"]) for r in rows] == \
            [(r["file"], r["top"], r["mode"], r["correct"]) for r in saved]
+
+
+def test_role_assumptions_spell_out_instrument_and_mediator():
+    from advisor.pipeline import role_assumptions
+
+    assert role_assumptions({"treatment": "t", "outcome": "y"}) == []
+    iv = role_assumptions({"treatment": "t", "outcome": "y", "instrument": "z"})
+    assert len(iv) == 1 and "`z` is an **instrument**" in iv[0] and "only through `t`" in iv[0]
+    fd = role_assumptions({"treatment": "t", "outcome": "y", "mediator": "m"})
+    assert len(fd) == 1 and "`m` is a **mediator**" in fd[0]
+
+
+def test_parsed_mediator_is_stated_and_user_roles_are_not():
+    from advisor.pipeline import advise, load_backend
+    from advisor.profiler import load_csv
+
+    demos = json.loads((ROOT / "data" / "demo" / "demos.json").read_text(encoding="utf-8"))
+    d = next(x for x in demos if x["file"] == "remote_work_frontdoor.csv")
+    df, backend = load_csv(ROOT / "data" / "demo" / d["file"]), load_backend("baseline")
+    a = advise(df, d["question"], backend)
+    assert a.fields.get("mediator") == "skills_score" and any("mediator" in s for s in a.assumptions)
+    assert advise(df, d["question"], backend, fields=a.fields).assumptions == []  # роли подтверждены пользователем

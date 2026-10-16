@@ -144,6 +144,10 @@ if advice.confirm:
 elif advice.parse_confidence is not None:
     st.caption(f"The model's probability for this reading of the question: {pct(advice.parse_confidence)}. "
                "A high number does not prove the roles are right, so check them.")
+if advice.assumptions:
+    st.info("**The advice rests on a reading the data cannot check:**\n" + "".join(f"\n- {a}" for a in advice.assumptions)
+            + "\n\nAn instrument and a mediator look alike in the data, but they lead to different methods "
+              "(IV or front-door). If the role is the other way round, change it below and re-run.")
 
 
 def doubt_label(text: str, *keys: str) -> str:
@@ -159,8 +163,11 @@ with st.form("roles"):
     outcome = c3.selectbox(doubt_label("Outcome (Y)", "outcome", "target"), cols,
                            index=cols.index(f[role_key]) if f.get(role_key) in cols else 0)
     c4, c5, c6 = st.columns(3)
-    instrument = c4.selectbox("Instrument", cols, index=cols.index(f["instrument"]) if f.get("instrument") in cols else 0)
-    mediator = c5.selectbox("Mediator", cols, index=cols.index(f["mediator"]) if f.get("mediator") in cols else 0)
+    assumed = {k for k in ("instrument", "mediator") if advice.assumptions and f.get(k)}
+    instrument = c4.selectbox("Instrument — please check" if "instrument" in assumed else "Instrument", cols,
+                              index=cols.index(f["instrument"]) if f.get("instrument") in cols else 0)
+    mediator = c5.selectbox("Mediator — please check" if "mediator" in assumed else "Mediator", cols,
+                            index=cols.index(f["mediator"]) if f.get("mediator") in cols else 0)
     running = c6.selectbox("Threshold variable", cols, index=cols.index(f["running"]) if f.get("running") in cols else 0)
     c7, c8 = st.columns(2)
     rand_opts = ["unknown", "yes", "no"]
