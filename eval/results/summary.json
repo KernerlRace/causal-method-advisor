@@ -1,0 +1,152 @@
+{
+  "Template test (4,986)": {
+    "Best method, given the correct parse": {
+      "baseline": 0.998,
+      "model": 0.992
+    },
+    "Best method, end to end": {
+      "baseline": 0.839,
+      "model": 0.988
+    },
+    "Treatment and outcome": {
+      "baseline": 0.858,
+      "model": 0.993
+    },
+    "Question type, unseen templates": {
+      "baseline": 0.799,
+      "model": 0.904
+    },
+    "Answer mode, given the correct parse": {
+      "baseline": 0.999,
+      "model": 0.999
+    },
+    "Rules only, no ranker (for reference)": {
+      "baseline": 0.661,
+      "model": null
+    }
+  },
+  "Hand-written (93)": {
+    "Best method, end to end": {
+      "baseline": 0.575,
+      "model": 0.675
+    },
+    "Answer mode, end to end": {
+      "baseline": 0.667,
+      "model": 0.857
+    },
+    "Treatment and outcome": {
+      "baseline": 0.645,
+      "model": 0.849
+    },
+    "Treatment and outcome, Russian": {
+      "baseline": 0.542,
+      "model": 0.917
+    },
+    "Question type": {
+      "baseline": 0.946,
+      "model": 0.892
+    },
+    "Non-causal questions refused": {
+      "baseline": 0.6,
+      "model": 0.7
+    },
+    "Model's own explanation passes the fact check": {
+      "baseline": null,
+      "model": 0.986
+    }
+  },
+  "Traps (48)": {
+    "All, end to end": {
+      "baseline": 0.583,
+      "model": 0.396
+    },
+    "Hidden confounder, end to end": {
+      "baseline": 0.167,
+      "model": 0.25
+    },
+    "No control group, end to end": {
+      "baseline": 1.0,
+      "model": 0.667
+    },
+    "Prediction question, end to end": {
+      "baseline": 0.5,
+      "model": 0.583
+    },
+    "Poor overlap, end to end": {
+      "baseline": 0.667,
+      "model": 0.083
+    },
+    "All, given the correct parse": {
+      "baseline": 1.0,
+      "model": 1.0
+    },
+    "All, right or the wrong parse caught": {
+      "baseline": null,
+      "model": 0.958
+    }
+  },
+  "Demo questions (12)": {
+    "As expected (parse, method, mode)": {
+      "baseline": 0.9166666666666666,
+      "model": 0.9166666666666666
+    }
+  },
+  "hand-written, paired against the baseline": {
+    "causalgpt_calibrated": {
+      "label": "shipped run (seed 0, stage 9.3 data)",
+      "n": 80,
+      "baseline": 0.575,
+      "model": 0.675,
+      "diff": 0.10000000000000009,
+      "ci95": [
+        -0.0125,
+        0.2125
+      ],
+      "model_only": 16,
+      "baseline_only": 8,
+      "mcnemar_p": 0.15158963203430176
+    },
+    "causalgpt_overlap_seed1": {
+      "label": "seed 1, stage 9.3 data",
+      "n": 80,
+      "baseline": 0.575,
+      "model": 0.725,
+      "diff": 0.15000000000000002,
+      "ci95": [
+        0.0375,
+        0.2625
+      ],
+      "model_only": 17,
+      "baseline_only": 5,
+      "mcnemar_p": 0.01690053939819336
+    },
+    "causalgpt_stage9data_seed1": {
+      "label": "seed 1, stage 9 data",
+      "n": 80,
+      "baseline": 0.575,
+      "model": 0.725,
+      "diff": 0.15000000000000002,
+      "ci95": [
+        0.0375,
+        0.2625
+      ],
+      "model_only": 17,
+      "baseline_only": 5,
+      "mcnemar_p": 0.01690053939819336
+    },
+    "causalgpt_pretrained": {
+      "label": "stage 8 run (seed 0, stage 8 data)",
+      "n": 80,
+      "baseline": 0.575,
+      "model": 0.7875,
+      "diff": 0.21250000000000002,
+      "ci95": [
+        0.0875,
+        0.325
+      ],
+      "model_only": 22,
+      "baseline_only": 5,
+      "mcnemar_p": 0.0015137195587158203
+    }
+  }
+}
